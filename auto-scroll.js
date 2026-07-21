@@ -1,9 +1,10 @@
 // ==UserScript==
 // @name         Auto Scroll Manga / Manhua / Comics
 // @namespace    local.auto-scroll-reader
-// @version      1.7
+// @version      1.9
 // @description  Ajoute un bouton flottant, déplaçable et réglable pour scroller automatiquement sur les sites de lecture.
-// @include      /^https?:\/\/.*(manga|manhua|manhwa|webtoon|comic|comics|webcomic|scantrad).*$/
+// @include      /^https?:\/\/.*(manga|manhua|manhwa|webtoon|comic|comics|webcomic|scantrad|hentai).*$/
+// @noframes
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @run-at       document-idle
@@ -12,30 +13,12 @@
 (() => {
   "use strict";
 
-  const KEYWORDS = [
-    "manga",
-    "manhua",
-    "manhwa",
-    "webtoon",
-    "comic",
-    "comics",
-    "webcomic",
-    "scantrad",
-  ];
-
   const SPEED_STORAGE_KEY = "autoScrollReaderSpeedPxPerSecond";
   const POSITION_STORAGE_KEY = "autoScrollReaderButtonPosition";
 
-  const MIN_SPEED = 10;
-  const MAX_SPEED = 500;
-  const SPEED_STEP = 10;
-
-  const currentUrl = window.location.href.toLowerCase();
-  const shouldRun = KEYWORDS.some((keyword) => currentUrl.includes(keyword));
-
-  if (!shouldRun) {
-    return;
-  }
+  const MIN_SPEED = -1000;
+  const MAX_SPEED = 1000;
+  const SPEED_STEP = 50;
 
   let scrolling = false;
   let buttonHovered = false;
@@ -49,13 +32,13 @@
   const legacySavedSpeed = Number(localStorage.getItem(SPEED_STORAGE_KEY));
   const defaultSpeed = Number.isFinite(legacySavedSpeed)
     ? legacySavedSpeed
-    : 70;
+    : 250;
 
   const storedSpeed = Number(GM_getValue(SPEED_STORAGE_KEY, defaultSpeed));
 
   let speed = Number.isFinite(storedSpeed)
     ? Math.max(MIN_SPEED, Math.min(MAX_SPEED, storedSpeed))
-    : 70;
+    : 250;
 
   function saveSpeed() {
     GM_setValue(SPEED_STORAGE_KEY, speed);
@@ -72,10 +55,11 @@
   function getMaximumScrollY() {
     const scrollingElement = getScrollingElement();
 
-    return Math.max(
-      0,
-      scrollingElement.scrollHeight - window.innerHeight
-    );
+    return Math.max(0, scrollingElement.scrollHeight - window.innerHeight);
+  }
+
+  function getNearTop() {
+    return getCurrentScrollY() <= 8;
   }
 
   function getNearBottom() {
@@ -84,8 +68,7 @@
 
   function isFullscreen() {
     return Boolean(
-      document.fullscreenElement ||
-      document.webkitFullscreenElement
+      document.fullscreenElement || document.webkitFullscreenElement,
     );
   }
 
@@ -105,225 +88,6 @@
     } catch {
       // Si le navigateur refuse le fullscreen, l'auto-scroll reste utilisable.
     }
-  }
-
-  function updateButton() {
-    const iconClass = scrolling ? "asr-icon--pause" : "asr-icon--play";
-
-    button.innerHTML = `
-      <span class="asr-icon ${iconClass}" aria-hidden="true"></span>
-      <span class="asr-label">Auto · ${speed}px/s</span>
-    `;
-
-    button.style.background = "rgba(255, 255, 255, 0.62)";
-    button.style.color = "#111827";
-    button.style.border = "1px solid rgba(17, 24, 39, 0.16)";
-
-    if (buttonHovered) {
-      button.style.opacity = scrolling ? "0.62" : "0.78";
-    } else {
-      button.style.opacity = scrolling ? "0.28" : "0.45";
-    }
-  }
-
-  function stopScroll() {
-    scrolling = false;
-    lastTimestamp = null;
-    scrollTargetY = null;
-
-    document.documentElement.classList.remove("asr-scrolling");
-
-    if (rafId) {
-      cancelAnimationFrame(rafId);
-      rafId = null;
-    }
-
-    updateButton();
-  }
-
-  function scrollStep(timestamp) {
-    if (!scrolling) {
-      return;
-    }
-
-    if (lastTimestamp === null) {
-      lastTimestamp = timestamp;
-    }
-
-    /*
-     * On limite volontairement le rattrapage après une frame lente :
-     * mieux vaut ralentir très brièvement que produire un saut visible.
-     */
-    const elapsedSeconds = Math.min(
-      (timestamp - lastTimestamp) / 1000,
-      0.05
-    );
-
-    lastTimestamp = timestamp;
-
-    const currentScrollY = getCurrentScrollY();
-
-    /*
-     * Le navigateur peut arrondir la position visible.
-     * Le site peut aussi charger de nouvelles images ou modifier la hauteur
-     * de la page pendant la lecture.
-     *
-     * On conserve normalement notre cible précise en sous-pixels.
-     * Mais si la page s'est fortement décalée, on se resynchronise.
-     */
-    if (
-      scrollTargetY === null ||
-      Math.abs(currentScrollY - scrollTargetY) > 80
-    ) {
-      scrollTargetY = currentScrollY;
-    }
-
-    const maximumScrollY = getMaximumScrollY();
-
-    scrollTargetY = Math.min(
-      maximumScrollY,
-      scrollTargetY + speed * elapsedSeconds
-    );
-
-    window.scrollTo({
-      top: scrollTargetY,
-      left: window.scrollX,
-      behavior: "auto",
-    });
-
-    if (scrollTargetY >= maximumScrollY - 1 || getNearBottom()) {
-      stopScroll();
-      return;
-    }
-
-    rafId = requestAnimationFrame(scrollStep);
-  }
-
-  async function startScroll({ useFullscreen = false } = {}) {
-    if (scrolling) {
-      return;
-    }
-
-    if (useFullscreen) {
-      await enterFullscreenIfNeeded();
-    }
-
-    scrolling = true;
-    lastTimestamp = null;
-    scrollTargetY = getCurrentScrollY();
-
-    /*
-     * Certains sites imposent scroll-behavior: smooth.
-     * Ce style interfère avec notre animation continue.
-     */
-    document.documentElement.classList.add("asr-scrolling");
-
-    updateButton();
-    rafId = requestAnimationFrame(scrollStep);
-  }
-
-  function toggleScroll({ useFullscreen = false } = {}) {
-    if (scrolling) {
-      stopScroll();
-    } else {
-      startScroll({ useFullscreen });
-    }
-  }
-
-  function changeSpeed(delta) {
-    speed = Math.max(
-      MIN_SPEED,
-      Math.min(MAX_SPEED, speed + delta)
-    );
-
-    saveSpeed();
-    updateButton();
-  }
-
-  function isTypingTarget(element) {
-    if (!element) {
-      return false;
-    }
-
-    const tagName = element.tagName?.toLowerCase();
-
-    return (
-      tagName === "input" ||
-      tagName === "textarea" ||
-      tagName === "select" ||
-      element.isContentEditable
-    );
-  }
-
-  function setButtonPosition(left, top, save = false) {
-    const rect = button.getBoundingClientRect();
-
-    const maxLeft = Math.max(0, window.innerWidth - rect.width);
-    const maxTop = Math.max(0, window.innerHeight - rect.height);
-
-    const clampedLeft = Math.min(Math.max(0, left), maxLeft);
-    const clampedTop = Math.min(Math.max(0, top), maxTop);
-
-    button.style.left = `${clampedLeft}px`;
-    button.style.top = `${clampedTop}px`;
-    button.style.right = "auto";
-    button.style.bottom = "auto";
-
-    hasCustomPosition = true;
-
-    if (save) {
-      GM_setValue(
-        POSITION_STORAGE_KEY,
-        JSON.stringify({
-          left: clampedLeft,
-          top: clampedTop,
-        })
-      );
-    }
-  }
-
-  function loadSavedButtonPosition() {
-    const rawPosition = GM_getValue(POSITION_STORAGE_KEY, "");
-
-    if (!rawPosition) {
-      return;
-    }
-
-    try {
-      const position = JSON.parse(rawPosition);
-
-      if (
-        Number.isFinite(position.left) &&
-        Number.isFinite(position.top)
-      ) {
-        setButtonPosition(position.left, position.top);
-      }
-    } catch {
-      // Position invalide : on conserve l'emplacement par défaut.
-    }
-  }
-
-  function finishDrag(event) {
-    if (!dragState || event.pointerId !== dragState.pointerId) {
-      return;
-    }
-
-    if (dragState.moved) {
-      const rect = button.getBoundingClientRect();
-
-      setButtonPosition(rect.left, rect.top, true);
-
-      if (event.type === "pointerup") {
-        suppressNextClick = true;
-      }
-    }
-
-    if (button.hasPointerCapture(event.pointerId)) {
-      button.releasePointerCapture(event.pointerId);
-    }
-
-    button.style.cursor = "grab";
-    dragState = null;
   }
 
   const style = document.createElement("style");
@@ -384,16 +148,22 @@
   document.head.appendChild(style);
 
   const button = document.createElement("button");
+  const icon = document.createElement("span");
+  const label = document.createElement("span");
 
-  button.setAttribute(
-    "aria-label",
-    "Activer ou mettre en pause l'auto-scroll"
-  );
+  button.setAttribute("aria-label", "Activer ou mettre en pause l'auto-scroll");
+
+  icon.className = "asr-icon";
+  icon.setAttribute("aria-hidden", "true");
+
+  label.className = "asr-label";
+
+  button.append(icon, label);
 
   Object.assign(button.style, {
     position: "fixed",
     right: "1rem",
-    bottom: "1rem",
+    bottom: "5rem",
     zIndex: "999999",
     display: "inline-flex",
     alignItems: "center",
@@ -401,15 +171,15 @@
     minWidth: "8.9rem",
     justifyContent: "center",
     padding: "0.65rem 0.95rem",
-    border: "1px solid rgba(17, 24, 39, 0.16)",
+    border: "1px solid rgba(17, 24, 39, 0.7)",
     borderRadius: "999px",
-    background: "rgba(255, 255, 255, 0.62)",
+    background: "rgba(255, 255, 255, 0.9)",
     color: "#111827",
     fontSize: "0.95rem",
     fontFamily: "system-ui, sans-serif",
     cursor: "grab",
     boxShadow: "0 0.25rem 0.8rem rgba(0,0,0,0.18)",
-    opacity: "0.45",
+    opacity: "0.9",
     userSelect: "none",
     touchAction: "none",
     backdropFilter: "blur(0.35rem)",
@@ -419,6 +189,277 @@
     outline: "none",
     WebkitTapHighlightColor: "transparent",
   });
+
+  function updateButton() {
+    icon.classList.toggle("asr-icon--play", !scrolling);
+    icon.classList.toggle("asr-icon--pause", scrolling);
+
+    label.textContent = `${speed}px/s`;
+
+    if (buttonHovered) {
+      button.style.opacity = scrolling ? "0.2" : "0.7";
+    } else {
+      button.style.opacity = scrolling ? "0.5" : "0.9";
+    }
+
+    button.style.cursor = dragState
+      ? "grabbing"
+      : scrolling && buttonHovered
+        ? "none"
+        : "grab";
+  }
+
+  function stopScroll() {
+    scrolling = false;
+    lastTimestamp = null;
+    scrollTargetY = null;
+
+    document.documentElement.classList.remove("asr-scrolling");
+
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    }
+
+    updateButton();
+  }
+
+  function scrollStep(timestamp) {
+    rafId = null;
+
+    if (!scrolling || speed === 0) {
+      lastTimestamp = null;
+      return;
+    }
+
+    if (lastTimestamp === null) {
+      lastTimestamp = timestamp;
+    }
+
+    /*
+     * On limite volontairement le rattrapage après une frame lente :
+     * mieux vaut ralentir très brièvement que produire un saut visible.
+     */
+    const elapsedSeconds = Math.min((timestamp - lastTimestamp) / 1000, 0.05);
+
+    lastTimestamp = timestamp;
+
+    const currentScrollY = getCurrentScrollY();
+
+    /*
+     * Le navigateur peut arrondir la position visible.
+     * Le site peut aussi charger de nouvelles images ou modifier la hauteur
+     * de la page pendant la lecture.
+     *
+     * On conserve normalement notre cible précise en sous-pixels.
+     * Mais si la page s'est fortement décalée, on se resynchronise.
+     */
+    if (
+      scrollTargetY === null ||
+      Math.abs(currentScrollY - scrollTargetY) > 80
+    ) {
+      scrollTargetY = currentScrollY;
+    }
+
+    const maximumScrollY = getMaximumScrollY();
+
+    scrollTargetY = Math.max(
+      0,
+      Math.min(maximumScrollY, scrollTargetY + speed * elapsedSeconds),
+    );
+
+    window.scrollTo({
+      top: scrollTargetY,
+      left: window.scrollX,
+      behavior: "auto",
+    });
+
+    const reachedBottom =
+      speed > 0 && (scrollTargetY >= maximumScrollY - 1 || getNearBottom());
+
+    const reachedTop = speed < 0 && (scrollTargetY <= 1 || getNearTop());
+
+    if (reachedBottom || reachedTop) {
+      stopScroll();
+      return;
+    }
+
+    rafId = requestAnimationFrame(scrollStep);
+  }
+
+  async function startScroll({ useFullscreen = false } = {}) {
+    if (scrolling) {
+      return;
+    }
+
+    if (useFullscreen) {
+      await enterFullscreenIfNeeded();
+    }
+
+    scrolling = true;
+    lastTimestamp = null;
+    scrollTargetY = getCurrentScrollY();
+
+    if (speed !== 0) {
+      /*
+       * Certains sites imposent scroll-behavior: smooth.
+       * Ce style interfère avec notre animation continue.
+       */
+      document.documentElement.classList.add("asr-scrolling");
+      rafId = requestAnimationFrame(scrollStep);
+    }
+
+    updateButton();
+  }
+
+  function toggleScroll({ useFullscreen = false } = {}) {
+    if (scrolling) {
+      stopScroll();
+    } else {
+      startScroll({ useFullscreen });
+    }
+  }
+
+  function changeSpeed(delta) {
+    speed = Math.max(MIN_SPEED, Math.min(MAX_SPEED, speed + delta));
+
+    saveSpeed();
+    updateButton();
+
+    if (!scrolling) {
+      return;
+    }
+
+    if (speed === 0) {
+      document.documentElement.classList.remove("asr-scrolling");
+
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+
+      lastTimestamp = null;
+      scrollTargetY = getCurrentScrollY();
+      return;
+    }
+
+    document.documentElement.classList.add("asr-scrolling");
+
+    if (rafId === null) {
+      lastTimestamp = null;
+      scrollTargetY = getCurrentScrollY();
+      rafId = requestAnimationFrame(scrollStep);
+    }
+  }
+
+  function isTypingTarget(element) {
+    if (!(element instanceof Element)) {
+      return false;
+    }
+
+    return Boolean(
+      element.closest("input, textarea, select, [contenteditable='true']"),
+    );
+  }
+
+  function isSpaceReservedTarget(element) {
+    if (!(element instanceof Element)) {
+      return false;
+    }
+
+    const interactiveElement = element.closest(
+      "button, summary, a[href], [role='button']",
+    );
+
+    return Boolean(interactiveElement && interactiveElement !== button);
+  }
+
+  function applyButtonPosition(left, bottom, save = false) {
+    const rect = button.getBoundingClientRect();
+
+    const maxLeft = Math.max(0, window.innerWidth - rect.width);
+    const maxBottom = Math.max(0, window.innerHeight - rect.height);
+
+    const clampedLeft = Math.min(Math.max(0, left), maxLeft);
+
+    const clampedBottom = Math.min(Math.max(0, bottom), maxBottom);
+
+    button.style.left = `${clampedLeft}px`;
+    button.style.top = "auto";
+    button.style.right = "auto";
+    button.style.bottom = `${clampedBottom}px`;
+
+    hasCustomPosition = true;
+
+    if (save) {
+      GM_setValue(
+        POSITION_STORAGE_KEY,
+        JSON.stringify({
+          left: clampedLeft,
+          bottom: clampedBottom,
+        }),
+      );
+    }
+  }
+
+  function setButtonPosition(left, top, save = false) {
+    const rect = button.getBoundingClientRect();
+
+    const maxTop = Math.max(0, window.innerHeight - rect.height);
+
+    const clampedTop = Math.min(Math.max(0, top), maxTop);
+
+    const bottom = window.innerHeight - clampedTop - rect.height;
+
+    applyButtonPosition(left, bottom, save);
+  }
+
+  function loadSavedButtonPosition() {
+    const rawPosition = GM_getValue(POSITION_STORAGE_KEY, "");
+
+    if (!rawPosition) {
+      return;
+    }
+
+    try {
+      const position = JSON.parse(rawPosition);
+
+      if (Number.isFinite(position.left) && Number.isFinite(position.bottom)) {
+        applyButtonPosition(position.left, position.bottom);
+        return;
+      }
+
+      if (Number.isFinite(position.left) && Number.isFinite(position.top)) {
+        // Migration de l'ancien format { left, top }.
+        setButtonPosition(position.left, position.top, true);
+      }
+    } catch {
+      // Position invalide : on conserve l'emplacement par défaut.
+    }
+  }
+
+  function finishDrag(event) {
+    if (!dragState || event.pointerId !== dragState.pointerId) {
+      return;
+    }
+
+    if (dragState.moved) {
+      const rect = button.getBoundingClientRect();
+
+      setButtonPosition(rect.left, rect.top, true);
+
+      if (event.type === "pointerup") {
+        suppressNextClick = true;
+      }
+    }
+
+    if (button.hasPointerCapture(event.pointerId)) {
+      button.releasePointerCapture(event.pointerId);
+    }
+
+    dragState = null;
+    updateButton();
+  }
 
   button.addEventListener("click", (event) => {
     if (suppressNextClick) {
@@ -459,7 +500,7 @@
     };
 
     button.setPointerCapture(event.pointerId);
-    button.style.cursor = "grabbing";
+    updateButton();
   });
 
   button.addEventListener("pointermove", (event) => {
@@ -479,7 +520,7 @@
 
     setButtonPosition(
       dragState.originLeft + deltaX,
-      dragState.originTop + deltaY
+      dragState.originTop + deltaY,
     );
   });
 
@@ -497,7 +538,7 @@
         changeSpeed(-SPEED_STEP);
       }
     },
-    { passive: false }
+    { passive: false },
   );
 
   document.body.appendChild(button);
@@ -509,8 +550,12 @@
       return;
     }
 
-    const rect = button.getBoundingClientRect();
-    setButtonPosition(rect.left, rect.top);
+    const left = Number.parseFloat(button.style.left);
+    const bottom = Number.parseFloat(button.style.bottom);
+
+    if (Number.isFinite(left) && Number.isFinite(bottom)) {
+      applyButtonPosition(left, bottom);
+    }
   });
 
   document.addEventListener("keydown", (event) => {
@@ -518,43 +563,32 @@
       return;
     }
 
-    const key = event.key.toLowerCase();
+    const hasModifier =
+      event.ctrlKey || event.metaKey || event.altKey || event.shiftKey;
 
-    if (
-      key === "a" &&
-      !event.ctrlKey &&
-      !event.metaKey &&
-      !event.altKey
-    ) {
+    if (hasModifier) {
+      return;
+    }
+
+    if (event.code === "Space" && !event.repeat) {
+      if (isSpaceReservedTarget(event.target)) {
+        return;
+      }
+
       event.preventDefault();
       toggleScroll({ useFullscreen: true });
       return;
     }
 
-    if (event.key === "Escape") {
-      stopScroll();
-      return;
-    }
-
-    if (buttonHovered && event.key === "ArrowUp") {
+    if (event.key === "ArrowUp") {
       event.preventDefault();
       changeSpeed(SPEED_STEP);
       return;
     }
 
-    if (buttonHovered && event.key === "ArrowDown") {
+    if (event.key === "ArrowDown") {
       event.preventDefault();
       changeSpeed(-SPEED_STEP);
-      return;
-    }
-
-    if (event.key === "[") {
-      changeSpeed(-SPEED_STEP);
-      return;
-    }
-
-    if (event.key === "]") {
-      changeSpeed(SPEED_STEP);
     }
   });
 })();
