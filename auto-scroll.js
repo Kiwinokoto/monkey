@@ -194,7 +194,7 @@
     icon.classList.toggle("asr-icon--play", !scrolling);
     icon.classList.toggle("asr-icon--pause", scrolling);
 
-    label.textContent = `${speed}px/s`;
+    label.textContent = `${speed} px/s`;
 
     if (buttonHovered) {
       button.style.opacity = scrolling ? "0.2" : "0.7";
