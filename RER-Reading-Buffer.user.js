@@ -1,0 +1,698 @@
+// ==UserScript==
+// @name         RER Reading Buffer
+// @namespace    kiwinokoto.local
+// @version      0.1.0
+// @description  Garde jusqu'a 5 chapitres/pages de lecture d'avance pour les coupures reseau.
+// @author       Kevin + ChatGPT
+// @match        *://*/*
+// @run-at       document-idle
+// @grant        none
+// ==/UserScript==
+
+(() => {
+  'use strict';
+
+  // ---------------------------------------------------------------------------
+  // Reglages simples
+  // ---------------------------------------------------------------------------
+  const LOOKAHEAD = 5;                 // Passe a 3 ici si tu preferes un buffer plus petit.
+  const FETCH_DELAY_MS = 2500;         // Pause entre deux chapitres -> pas de rafale.
+  const IMAGE_DELAY_MS = 150;          // Les images sont mises en cache doucement.
+  const MAX_IMAGES_PER_CHAPTER = 80;   // Protection contre les pages absurdes.
+  const CACHE_TTL_DAYS = 7;
+  const MAX_RESOURCE_BYTES = 12 * 1024 * 1024; // Ignore une image individuelle > 12 Mo.
+  const DB_NAME = 'rer-reading-buffer-v1';
+  const DB_VERSION = 1;
+
+  const READER_URL_RE = /(manga|manhwa|manhua|novel|chapter|chapitre|reader|read)/i;
+  const NEXT_TEXT_RE = /^(?:next(?:\s+chapter)?|chapter\s+next|chapitre\s+suivant|suivant|next\s*[›»→]?|[›»→])$/i;
+  const PREV_TEXT_RE = /^(?:prev(?:ious)?(?:\s+chapter)?|chapter\s+prev(?:ious)?|chapitre\s+pr[eé]c[eé]dent|pr[eé]c[eé]dent|[‹«←])$/i;
+
+  let dbPromise;
+  let prefetchRunning = false;
+  let objectUrls = [];
+  let badge;
+  let panel;
+  let status = {
+    cachedAhead: 0,
+    expectedAhead: LOOKAHEAD,
+    imageCached: 0,
+    imageTotal: 0,
+    cacheBytes: 0,
+    message: 'Initialisation…',
+  };
+
+  // ---------------------------------------------------------------------------
+  // IndexedDB
+  // ---------------------------------------------------------------------------
+  function openDB() {
+    if (dbPromise) return dbPromise;
+
+    dbPromise = new Promise((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+      request.onupgradeneeded = () => {
+        const db = request.result;
+
+        if (!db.objectStoreNames.contains('chapters')) {
+          const store = db.createObjectStore('chapters', { keyPath: 'url' });
+          store.createIndex('savedAt', 'savedAt');
+          store.createIndex('origin', 'origin');
+        }
+
+        if (!db.objectStoreNames.contains('resources')) {
+          const store = db.createObjectStore('resources', { keyPath: 'url' });
+          store.createIndex('savedAt', 'savedAt');
+          store.createIndex('chapterUrl', 'chapterUrl');
+          store.createIndex('origin', 'origin');
+        }
+      };
+
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+
+    return dbPromise;
+  }
+
+  async function dbGet(storeName, key) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeName, 'readonly');
+      const req = tx.objectStore(storeName).get(key);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function dbPut(storeName, value) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeName, 'readwrite');
+      tx.objectStore(storeName).put(value);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  }
+
+  async function dbDelete(storeName, key) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeName, 'readwrite');
+      tx.objectStore(storeName).delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async function dbAll(storeName) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeName, 'readonly');
+      const req = tx.objectStore(storeName).getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Detection des liens de lecture
+  // ---------------------------------------------------------------------------
+  function absoluteUrl(href, baseUrl) {
+    try {
+      const u = new URL(href, baseUrl);
+      if (!/^https?:$/.test(u.protocol)) return null;
+      u.hash = '';
+      return u.href;
+    } catch {
+      return null;
+    }
+  }
+
+  function visibleText(el) {
+    return [
+      el.textContent,
+      el.getAttribute('aria-label'),
+      el.getAttribute('title'),
+      el.getAttribute('data-title'),
+    ].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+  }
+
+  function findDirectionalUrl(doc, baseUrl, direction) {
+    const isNext = direction === 'next';
+    const rel = isNext ? 'next' : 'prev';
+    const textRe = isNext ? NEXT_TEXT_RE : PREV_TEXT_RE;
+
+    const relLink = doc.querySelector(`a[rel~="${rel}"][href], link[rel~="${rel}"][href]`);
+    if (relLink) {
+      const url = absoluteUrl(relLink.getAttribute('href'), baseUrl);
+      if (url) return url;
+    }
+
+    const candidates = [...doc.querySelectorAll('a[href]')];
+    let best = null;
+    let bestScore = -Infinity;
+
+    for (const a of candidates) {
+      const url = absoluteUrl(a.getAttribute('href'), baseUrl);
+      if (!url) continue;
+
+      // Un buffer de lecture ne doit jamais partir precharger un autre domaine.
+      if (new URL(url).origin !== new URL(baseUrl).origin) continue;
+
+      const text = visibleText(a);
+      const cls = `${a.id || ''} ${a.className || ''}`.toLowerCase();
+      const href = url.toLowerCase();
+      let score = 0;
+
+      if (textRe.test(text)) score += 100;
+      if (isNext && /\bnext\b/.test(text.toLowerCase())) score += 35;
+      if (!isNext && /\b(prev|previous)\b/.test(text.toLowerCase())) score += 35;
+      if (isNext && /\bnext\b/.test(cls)) score += 25;
+      if (!isNext && /\b(prev|previous)\b/.test(cls)) score += 25;
+      if (/chapter|chapitre|episode|ep\b/.test(href)) score += 12;
+      if (/novel|manga|manhwa|manhua|reader|read/.test(href)) score += 8;
+
+      // Evite quelques faux positifs courants.
+      if (/comment|login|signup|register|home|library/.test(href)) score -= 30;
+
+      if (score > bestScore) {
+        bestScore = score;
+        best = url;
+      }
+    }
+
+    return bestScore >= 45 ? best : null;
+  }
+
+  const findNextUrl = (doc, baseUrl) => findDirectionalUrl(doc, baseUrl, 'next');
+  const findPrevUrl = (doc, baseUrl) => findDirectionalUrl(doc, baseUrl, 'prev');
+
+  function isLikelyReaderPage(doc = document, url = location.href) {
+    if (READER_URL_RE.test(url) && findNextUrl(doc, url)) return true;
+
+    const text = doc.body?.innerText?.slice(0, 8000) || '';
+    return Boolean(findNextUrl(doc, url) && /chapter|chapitre|manga|manhwa|manhua|novel/i.test(text));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Images : best effort. Texte/HTML reste le coeur fiable de la V1.
+  // ---------------------------------------------------------------------------
+  function findReaderRoot(doc) {
+    const selectors = [
+      '#chapter-content', '.chapter-content', '.chapter_content',
+      '#readerarea', '#reader-area', '.reader-area', '.reading-content',
+      '.chapter-reading-content', '.entry-content', 'article', 'main',
+    ];
+
+    for (const selector of selectors) {
+      const el = doc.querySelector(selector);
+      if (el) return el;
+    }
+    return doc.body;
+  }
+
+  function imageSource(img, baseUrl) {
+    const raw = img.getAttribute('data-src')
+      || img.getAttribute('data-lazy-src')
+      || img.getAttribute('data-original')
+      || img.getAttribute('src');
+
+    if (!raw || /^(data|blob):/i.test(raw)) return null;
+    return absoluteUrl(raw, baseUrl);
+  }
+
+  function tagReaderImages(doc, pageUrl) {
+    const root = findReaderRoot(doc);
+    if (!root) return [];
+
+    const urls = [];
+    for (const img of [...root.querySelectorAll('img')].slice(0, MAX_IMAGES_PER_CHAPTER)) {
+      const url = imageSource(img, pageUrl);
+      if (!url) continue;
+      img.setAttribute('data-rer-src', url);
+      urls.push(url);
+    }
+    return [...new Set(urls)];
+  }
+
+  async function cacheImage(url, chapterUrl) {
+    const existing = await dbGet('resources', url);
+    if (existing) return true;
+
+    try {
+      const target = new URL(url);
+      const chapter = new URL(chapterUrl);
+      const response = await fetch(url, {
+        credentials: target.origin === chapter.origin ? 'include' : 'omit',
+        mode: 'cors',
+        cache: 'force-cache',
+      });
+
+      if (!response.ok) return false;
+
+      const blob = await response.blob();
+      if (!blob.size || blob.size > MAX_RESOURCE_BYTES) return false;
+
+      await dbPut('resources', {
+        url,
+        chapterUrl,
+        origin: chapter.origin,
+        blob,
+        bytes: blob.size,
+        savedAt: Date.now(),
+      });
+      return true;
+    } catch {
+      // CDN sans CORS, protection anti-hotlink, etc. : on laisse tomber proprement.
+      return false;
+    }
+  }
+
+  async function cacheImagesSlowly(imageUrls, chapterUrl) {
+    let cached = 0;
+    for (const url of imageUrls) {
+      if (!navigator.onLine) break;
+      if (await cacheImage(url, chapterUrl)) {
+        cached += 1;
+        status.imageCached += 1;
+      }
+      updateUI();
+      await sleep(IMAGE_DELAY_MS);
+    }
+    return cached;
+  }
+
+  async function hydrateCachedImages() {
+    revokeObjectUrls();
+    const imgs = [...document.querySelectorAll('img[data-rer-src]')];
+
+    for (const img of imgs) {
+      const url = img.getAttribute('data-rer-src');
+      if (!url) continue;
+      const resource = await dbGet('resources', url);
+      if (!resource?.blob) continue;
+
+      const objectUrl = URL.createObjectURL(resource.blob);
+      objectUrls.push(objectUrl);
+      img.src = objectUrl;
+      img.removeAttribute('srcset');
+    }
+  }
+
+  function revokeObjectUrls() {
+    for (const url of objectUrls) URL.revokeObjectURL(url);
+    objectUrls = [];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Chapitres
+  // ---------------------------------------------------------------------------
+  function serializeChapter(doc, pageUrl) {
+    const clone = doc.cloneNode(true);
+    clone.querySelectorAll('script, iframe, object, embed, #rer-reading-buffer-badge, #rer-reading-buffer-panel').forEach(el => el.remove());
+    const imageUrls = tagReaderImages(clone, pageUrl);
+    const bodyHtml = clone.body?.innerHTML || '';
+
+    return {
+      url: pageUrl,
+      origin: new URL(pageUrl).origin,
+      title: doc.title || '',
+      bodyHtml,
+      nextUrl: findNextUrl(doc, pageUrl),
+      prevUrl: findPrevUrl(doc, pageUrl),
+      imageUrls,
+      bytes: new Blob([bodyHtml]).size,
+      savedAt: Date.now(),
+    };
+  }
+
+  async function saveCurrentChapter() {
+    const url = absoluteUrl(location.href, location.href);
+    if (!url) return null;
+    const record = serializeChapter(document, url);
+    await dbPut('chapters', record);
+    return record;
+  }
+
+  async function fetchChapter(url) {
+    let response;
+    try {
+      response = await fetch(url, {
+        credentials: 'include',
+        cache: 'no-cache',
+        headers: { Accept: 'text/html,application/xhtml+xml' },
+      });
+    } catch {
+      return { error: 'network' };
+    }
+
+    if (response.status === 429) {
+      return {
+        error: 'rate-limit',
+        retryAfter: response.headers.get('Retry-After'),
+      };
+    }
+
+    // On ne cherche pas a contourner les protections du site.
+    if (response.status === 401 || response.status === 403) {
+      return { error: `http-${response.status}` };
+    }
+
+    if (!response.ok) return { error: `http-${response.status}` };
+
+    const html = await response.text();
+    if (html.length < 500) return { error: 'unexpected-page' };
+
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const record = serializeChapter(doc, url);
+    await dbPut('chapters', record);
+    return { record };
+  }
+
+  async function getFreshChapter(url) {
+    const cached = await dbGet('chapters', url);
+    const maxAge = CACHE_TTL_DAYS * 24 * 60 * 60 * 1000;
+    if (cached && Date.now() - cached.savedAt < maxAge) return { record: cached, fromCache: true };
+    return fetchChapter(url);
+  }
+
+  async function prefetchAhead() {
+    if (prefetchRunning || !navigator.onLine) return;
+    prefetchRunning = true;
+
+    status.cachedAhead = 0;
+    status.imageCached = 0;
+    status.imageTotal = 0;
+    status.message = 'Préchargement…';
+    updateUI();
+
+    try {
+      let current = await saveCurrentChapter();
+      if (!current?.nextUrl) {
+        status.message = 'Pas de chapitre suivant détecté';
+        return;
+      }
+
+      const keep = new Set([current.url]);
+      if (current.prevUrl) keep.add(current.prevUrl);
+      let nextUrl = current.nextUrl;
+      const chaptersToImageCache = [];
+
+      for (let i = 0; i < LOOKAHEAD && nextUrl; i += 1) {
+        if (!navigator.onLine) break;
+
+        const sameOrigin = new URL(nextUrl).origin === location.origin;
+        if (!sameOrigin) break;
+
+        const result = await getFreshChapter(nextUrl);
+        if (result.error) {
+          if (result.error === 'rate-limit') {
+            status.message = result.retryAfter
+              ? `Pause serveur (429, Retry-After ${result.retryAfter})`
+              : 'Pause serveur (429)';
+          } else if (result.error === 'network') {
+            status.message = 'Réseau coupé — buffer conservé';
+          } else {
+            status.message = `Préchargement stoppé (${result.error})`;
+          }
+          break;
+        }
+
+        const record = result.record;
+        keep.add(record.url);
+        status.cachedAhead += 1;
+        status.imageTotal += record.imageUrls.length;
+        chaptersToImageCache.push(record);
+        updateUI();
+
+        nextUrl = record.nextUrl;
+        if (i < LOOKAHEAD - 1 && nextUrl) await sleep(FETCH_DELAY_MS);
+      }
+
+      // Une fois les pages HTML en securite, on remplit le cache image doucement.
+      for (const chapter of chaptersToImageCache) {
+        await cacheImagesSlowly(chapter.imageUrls, chapter.url);
+      }
+
+      await pruneOrigin(location.origin, keep);
+      await refreshCacheStats();
+
+      status.message = status.cachedAhead
+        ? `${status.cachedAhead}/${LOOKAHEAD} chapitre${status.cachedAhead > 1 ? 's' : ''} prêt${status.cachedAhead > 1 ? 's' : ''}`
+        : 'Aucun chapitre en avance';
+    } catch (error) {
+      console.warn('[RER Reading Buffer]', error);
+      status.message = 'Erreur locale — voir console';
+    } finally {
+      prefetchRunning = false;
+      updateUI();
+    }
+  }
+
+  async function pruneOrigin(origin, keepUrls) {
+    const chapters = await dbAll('chapters');
+    const expiry = Date.now() - CACHE_TTL_DAYS * 24 * 60 * 60 * 1000;
+
+    for (const chapter of chapters) {
+      if (chapter.origin !== origin) continue;
+      const stale = chapter.savedAt < expiry;
+      const outsideWindow = !keepUrls.has(chapter.url);
+      if (stale || outsideWindow) await dbDelete('chapters', chapter.url);
+    }
+
+    const resources = await dbAll('resources');
+    for (const resource of resources) {
+      if (resource.origin !== origin) continue;
+      const stale = resource.savedAt < expiry;
+      const outsideWindow = !keepUrls.has(resource.chapterUrl);
+      if (stale || outsideWindow) await dbDelete('resources', resource.url);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Lecture hors ligne
+  // ---------------------------------------------------------------------------
+  function clickedAnchor(event) {
+    const el = event.target instanceof Element ? event.target.closest('a[href]') : null;
+    return el || null;
+  }
+
+  async function openCachedChapter(url) {
+    const record = await dbGet('chapters', url);
+    if (!record) return false;
+
+    revokeObjectUrls();
+    history.pushState({ rerReadingBuffer: true }, '', record.url);
+    document.title = record.title || document.title;
+    document.body.innerHTML = record.bodyHtml;
+    await hydrateCachedImages();
+    mountUI();
+    status.message = 'Lecture depuis le buffer hors ligne';
+    await refreshCacheStats();
+    updateUI();
+    window.scrollTo(0, 0);
+    return true;
+  }
+
+  document.addEventListener('click', async (event) => {
+    if (navigator.onLine) return;
+    const a = clickedAnchor(event);
+    if (!a) return;
+
+    const target = absoluteUrl(a.getAttribute('href'), location.href);
+    const next = findNextUrl(document, location.href);
+    if (!target || !next || target !== next) return;
+
+    // preventDefault doit etre synchrone : sinon le navigateur peut deja lancer
+    // la navigation avant la fin de la lecture IndexedDB.
+    event.preventDefault();
+    event.stopImmediatePropagation();
+
+    if (!(await openCachedChapter(target))) {
+      // Rien en cache : on laisse le navigateur tenter normalement la prochaine fois.
+      status.message = 'Chapitre suivant absent du buffer';
+      updateUI();
+    }
+  }, true);
+
+  document.addEventListener('keydown', async (event) => {
+    if (navigator.onLine) return;
+    if (!['ArrowRight', 'd', 'D'].includes(event.key)) return;
+
+    const next = findNextUrl(document, location.href);
+    if (!next) return;
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (!(await openCachedChapter(next))) {
+      status.message = 'Chapitre suivant absent du buffer';
+      updateUI();
+    }
+  }, true);
+
+  window.addEventListener('online', () => {
+    status.message = 'Réseau revenu — remise à niveau du buffer';
+    updateUI();
+    void prefetchAhead();
+  });
+
+  window.addEventListener('offline', () => {
+    status.message = 'Hors ligne — lecture depuis le buffer';
+    updateUI();
+  });
+
+  window.addEventListener('popstate', () => {
+    // Un retour navigateur apres une navigation offline recharge proprement la page
+    // si le reseau existe ; sinon le badge continue d'indiquer l'etat du buffer.
+    updateUI();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Mini UI
+  // ---------------------------------------------------------------------------
+  function mountUI() {
+    document.getElementById('rer-reading-buffer-badge')?.remove();
+    document.getElementById('rer-reading-buffer-panel')?.remove();
+
+    badge = document.createElement('button');
+    badge.id = 'rer-reading-buffer-badge';
+    badge.type = 'button';
+    badge.addEventListener('click', togglePanel);
+
+    panel = document.createElement('div');
+    panel.id = 'rer-reading-buffer-panel';
+    panel.hidden = true;
+
+    const nextCachedBtn = document.createElement('button');
+    nextCachedBtn.type = 'button';
+    nextCachedBtn.textContent = 'Lire suivant en cache';
+    nextCachedBtn.addEventListener('click', async () => {
+      const next = findNextUrl(document, location.href);
+      if (!next || !(await openCachedChapter(next))) {
+        status.message = 'Pas de chapitre suivant disponible en cache';
+        updateUI();
+      }
+    });
+
+    const refreshBtn = document.createElement('button');
+    refreshBtn.type = 'button';
+    refreshBtn.textContent = 'Recharger le buffer';
+    refreshBtn.addEventListener('click', () => void prefetchAhead());
+
+    const clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.textContent = 'Vider ce site';
+    clearBtn.addEventListener('click', async () => {
+      await clearOrigin(location.origin);
+      status.cachedAhead = 0;
+      status.cacheBytes = 0;
+      status.message = 'Cache de ce site vidé';
+      updateUI();
+    });
+
+    panel.append(nextCachedBtn, refreshBtn, clearBtn);
+    document.body.append(badge, panel);
+
+    injectStyles();
+    updateUI();
+  }
+
+  function injectStyles() {
+    if (document.getElementById('rer-reading-buffer-style')) return;
+    const style = document.createElement('style');
+    style.id = 'rer-reading-buffer-style';
+    style.textContent = `
+      #rer-reading-buffer-badge {
+        position: fixed; right: 12px; bottom: 12px; z-index: 2147483646;
+        border: 0; border-radius: 999px; padding: 7px 10px;
+        background: rgba(20,20,24,.86); color: white; font: 12px/1.2 system-ui,sans-serif;
+        box-shadow: 0 2px 10px rgba(0,0,0,.25); cursor: pointer; opacity: .78;
+      }
+      #rer-reading-buffer-badge:hover { opacity: 1; }
+      #rer-reading-buffer-panel {
+        position: fixed; right: 12px; bottom: 52px; z-index: 2147483646;
+        min-width: 230px; max-width: min(330px, calc(100vw - 24px));
+        padding: 10px; border-radius: 12px; background: rgba(20,20,24,.95); color: white;
+        font: 12px/1.4 system-ui,sans-serif; box-shadow: 0 4px 18px rgba(0,0,0,.35);
+      }
+      #rer-reading-buffer-panel[hidden] { display: none !important; }
+      #rer-reading-buffer-panel .rer-status { margin-bottom: 8px; white-space: pre-line; }
+      #rer-reading-buffer-panel button {
+        margin: 3px 6px 0 0; border: 0; border-radius: 8px; padding: 6px 8px;
+        background: #fff; color: #111; font: inherit; cursor: pointer;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function togglePanel() {
+    if (!panel) return;
+    panel.hidden = !panel.hidden;
+    updateUI();
+  }
+
+  function formatBytes(bytes) {
+    if (!bytes) return '0 Mo';
+    return `${(bytes / 1024 / 1024).toFixed(bytes > 10 * 1024 * 1024 ? 0 : 1)} Mo`;
+  }
+
+  function updateUI() {
+    if (!badge || !panel) return;
+    const online = navigator.onLine;
+    badge.textContent = `📚 ${status.cachedAhead}/${LOOKAHEAD}${online ? '' : ' · OFF'}`;
+    badge.title = status.message;
+
+    let info = panel.querySelector('.rer-status');
+    if (!info) {
+      info = document.createElement('div');
+      info.className = 'rer-status';
+      panel.prepend(info);
+    }
+
+    info.textContent = [
+      `Buffer : ${status.cachedAhead}/${LOOKAHEAD}`,
+      `Cache : ${formatBytes(status.cacheBytes)}`,
+      status.imageTotal ? `Images tentées : ${status.imageCached}/${status.imageTotal}` : null,
+      `Réseau : ${online ? 'en ligne' : 'hors ligne'}`,
+      status.message,
+    ].filter(Boolean).join('\n');
+  }
+
+  async function refreshCacheStats() {
+    const [chapters, resources] = await Promise.all([dbAll('chapters'), dbAll('resources')]);
+    status.cacheBytes = chapters
+      .filter(x => x.origin === location.origin)
+      .reduce((sum, x) => sum + (x.bytes || 0), 0)
+      + resources
+        .filter(x => x.origin === location.origin)
+        .reduce((sum, x) => sum + (x.bytes || 0), 0);
+  }
+
+  async function clearOrigin(origin) {
+    const [chapters, resources] = await Promise.all([dbAll('chapters'), dbAll('resources')]);
+    for (const x of chapters) if (x.origin === origin) await dbDelete('chapters', x.url);
+    for (const x of resources) if (x.origin === origin) await dbDelete('resources', x.url);
+  }
+
+  function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Boot
+  // ---------------------------------------------------------------------------
+  async function boot() {
+    if (!isLikelyReaderPage()) return;
+
+    mountUI();
+    await refreshCacheStats();
+    updateUI();
+
+    // Laisse la page finir tranquillement son propre chargement avant le buffer.
+    setTimeout(() => void prefetchAhead(), 1200);
+  }
+
+  void boot();
+})();

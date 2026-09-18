@@ -1,54 +1,75 @@
-Voici un README court, prêt à coller dans `README.md`, basé sur la version actuelle du script.
+# Monkey
 
-# Auto Scroll Manga / Manhua / Comics
+Petite collection de userscripts de confort pour la lecture sur le Web.
 
-Userscript Tampermonkey ajoutant un bouton flottant pour faire défiler automatiquement les pages de manga, manhua, manhwa, webtoon et comics.
+Les scripts sont conçus pour fonctionner avec les gestionnaires de userscripts courants, notamment **Tampermonkey** et **Violentmonkey**.
 
-## Fonctionnalités
+## Scripts
 
-* Défilement automatique vers le haut ou vers le bas
-* Vitesse réglable de `-1000` à `1000 px/s`
-* Pause temporaire à `0 px/s` sans désactiver l’auto-scroll
-* Arrêt automatique en haut ou en bas de la page
-* Bouton flottant déplaçable
-* Mémorisation de la vitesse et de la position du bouton
-* Tentative de passage en plein écran au démarrage
-* Désactivation du `scroll-behavior: smooth` pendant le défilement
-* Exécution uniquement dans la frame principale
+### Auto Scroll Manga / Manhua / Comics
 
-## Commandes
+Fichier : `auto-scroll.js`
 
-| Action                              | Commande                       |
-| ----------------------------------- | ------------------------------ |
-| Activer ou désactiver l’auto-scroll | Clic sur le bouton ou `Espace` |
-| Augmenter la vitesse                | `Flèche haut`                  |
-| Diminuer la vitesse                 | `Flèche bas`                   |
-| Modifier la vitesse à la souris     | Molette sur le bouton          |
-| Déplacer le bouton                  | Glisser-déposer                |
+Ajoute un bouton flottant pour faire défiler automatiquement les pages de manga, manhua, manhwa, webtoon et comics.
 
-Les raccourcis clavier sont ignorés lorsqu’un champ de saisie ou un élément interactif est utilisé.
+Fonctions principales :
+
+- défilement vers le haut ou vers le bas ;
+- vitesse réglable de `-1000` à `1000 px/s` ;
+- pause à `0 px/s` ;
+- arrêt automatique en haut ou en bas de page ;
+- bouton flottant déplaçable ;
+- mémorisation de la vitesse et de la position ;
+- raccourcis clavier et réglage à la molette.
+
+Le script cible les URL contenant notamment `manga`, `manhua`, `manhwa`, `webtoon`, `comic`, `webcomic`, `scantrad` ou `hentai`.
+
+### RER Reading Buffer
+
+Fichier : `RER-Reading-Buffer.user.js`
+
+Maintient un petit tampon de lecture pour continuer à lire pendant une coupure réseau courte, par exemple dans les transports.
+
+Fonctions principales :
+
+- précharge jusqu'à **5 chapitres** en avance ;
+- suit le vrai lien « chapitre suivant » plutôt que de deviner les URL ;
+- télécharge les chapitres séquentiellement avec une pause entre eux ;
+- conserve le HTML dans **IndexedDB** ;
+- tente aussi de conserver les images quand le site/CDN l'autorise ;
+- permet de lire le chapitre suivant depuis le buffer hors ligne ;
+- garde le chapitre courant et le précédent, puis nettoie les anciennes entrées ;
+- s'arrête proprement sur les réponses `401`, `403` ou `429`.
+
+Le cache des images est volontairement « best effort » : certains CDN bloquent les requêtes cross-origin. Le texte/HTML reste la partie la plus fiable.
 
 ## Installation
 
-1. Installer une extension compatible avec les userscripts, par exemple Tampermonkey.
-2. Créer un nouveau script.
-3. Remplacer son contenu par celui du fichier JavaScript de ce dépôt.
-4. Enregistrer le script.
+1. Installer Tampermonkey ou Violentmonkey.
+2. Créer un nouveau userscript.
+3. Copier le contenu du fichier souhaité.
+4. Enregistrer et activer le script.
 
-## Ciblage des sites
+Les scripts ne nécessitent aucun service externe propre à ce dépôt.
 
-Le script est activé lorsque l’URL contient l’un des termes suivants :
+## Commandes de l'Auto Scroll
 
-`manga`, `manhua`, `manhwa`, `webtoon`, `comic`, `comics`, `webcomic`, `scantrad` ou `hentai`.
+| Action | Commande |
+| --- | --- |
+| Activer / désactiver | Clic sur le bouton ou `Espace` |
+| Augmenter la vitesse | `Flèche haut` |
+| Diminuer la vitesse | `Flèche bas` |
+| Modifier la vitesse | Molette sur le bouton |
+| Déplacer le bouton | Glisser-déposer |
 
-Le filtrage utilise `@include`, car `@match` ne permet pas de rechercher librement un mot à l’intérieur de n’importe quel nom de domaine.
+Les raccourcis clavier sont ignorés lorsqu'un champ de saisie ou un élément interactif est utilisé.
 
-## Remarques
+## Compatibilité
 
-* Certains navigateurs ou sites peuvent refuser le passage en plein écran. L’auto-scroll continue alors de fonctionner normalement.
-* Les pages qui modifient fortement leur hauteur pendant le chargement peuvent provoquer une légère resynchronisation de la position.
-* Certains sites peuvent réagir à la présence de Tampermonkey indépendamment de ce userscript.
+Les scripts utilisent le format standard `// ==UserScript==`. Leur compatibilité exacte dépend du navigateur, du gestionnaire de userscripts et du site visité.
+
+Certains sites peuvent modifier fortement leur DOM, appliquer une CSP stricte, utiliser des CDN avec CORS restrictif ou changer leurs liens de navigation. Dans ce cas, une adaptation ciblée peut être nécessaire.
 
 ## Licence
 
-Projet personnel fourni en l’état. Libre à vous de l’adapter à vos besoins.
+Projet personnel fourni en l'état. Vérifiez les conditions d'utilisation des sites sur lesquels vous employez ces scripts.
