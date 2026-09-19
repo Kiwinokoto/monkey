@@ -61,6 +61,7 @@ C'est le script tout-en-un destiné à la lecture sur ordinateur et mobile :
 - auto-scroll novels : **-300 à 300 px/s**, pas de **5 px/s entre -20 et +20**, puis **10 px/s** au-delà, vitesse initiale **40 px/s** ;
 - l'activation de l'auto-scroll est mémorisée **par site et par mode** ;
 - pendant l'auto-scroll, le contrôle devient presque transparent après un court délai ;
+- des **repères latéraux fixes** optionnels peuvent encadrer la lecture : un unique curseur, désactivé par défaut et mémorisé par site/mode, augmente progressivement leur présence, leur largeur et leur fondu en utilisant la couleur du thème ;
 - toucher ou cliquer ailleurs dans la page arrête l'auto-scroll sans bloquer l'action normale du site ;
 - le contrôle est déplaçable et sa position est mémorisée **par site et par mode de lecture** : un comic et un novel peuvent donc avoir des positions différentes ;
 - l'apparence est générée à partir d'une seule couleur choisie : surface en verre translucide, reflet, bordure dérivée plus sombre et texte noir ou blanc sélectionné automatiquement selon le contraste ;

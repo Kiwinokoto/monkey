@@ -90,6 +90,7 @@
   const LEGACY_READER_POSITION_KEY = `rerReaderControlPosition:${location.origin}:reader`;
   const LEGACY_SCROLL_POSITION_KEY = 'autoScrollReaderButtonPosition';
   const SCROLL_ENABLED_KEY = `rerReaderScrollEnabled:${location.origin}:${READER_MODE}`;
+  const READER_RAILS_KEY = `rerReaderSideRailsLevel:${location.origin}:${READER_MODE}`;
   const SCROLL_SPEED_KEY = READER_MODE === 'novel'
     ? 'autoScrollNovelSpeedPxPerSecond'
     : 'autoScrollReaderSpeedPxPerSecond';
@@ -107,6 +108,7 @@
   let controlIcon;
   let controlLabel;
   let panel;
+  let sideRails;
   let bufferFadeTimerId = null;
   let bufferShownAt = 0;
   let bufferVisible = true;
@@ -407,7 +409,7 @@
   function sanitizeCachedDocument(doc) {
     doc.querySelectorAll(
       'script, iframe, frame, frameset, object, embed, base, ' +
-      'meta[http-equiv="refresh"], #rer-reader-control, ' +
+      'meta[http-equiv="refresh"], #rer-reader-control, #rer-reading-rails, ' +
       '#rer-reading-buffer-badge, #rer-reading-buffer-panel, .asr-reader-control'
     ).forEach(el => el.remove());
 
@@ -858,7 +860,18 @@
         Math.min(1, Number(GM_getValue(READER_IDLE_OPACITY_KEY, 0.9)) || 0.9)
       ),
       size: Math.max(36, Math.min(68, Number.isFinite(numericSize) ? numericSize : 47)),
+      rails: Math.max(
+        0,
+        Math.min(100, Number(GM_getValue(READER_RAILS_KEY, 0)) || 0)
+      ),
     };
+  }
+
+  function railsLevelLabel(level) {
+    if (level <= 0) return 'Off';
+    if (level <= 25) return 'Fin';
+    if (level <= 65) return 'Doux';
+    return 'Fort';
   }
 
   function applyReaderAppearance() {
@@ -886,6 +899,27 @@
     panel.style.setProperty('--rr-panel-accent', rgbCss(accent));
     panel.style.setProperty('--rr-panel-border', rgbaCss(border, 0.76));
     panel.style.setProperty('--rr-panel-shadow', rgbaCss(deep, 0.30));
+
+    if (sideRails) {
+      const railT = appearance.rails / 100;
+      const railWidthVw = 3 + 15 * railT;
+      const railAlpha = 0.23 * Math.pow(railT, 1.2);
+
+      sideRails.classList.toggle('rr-off', appearance.rails <= 0);
+      sideRails.style.setProperty(
+        '--rr-rail-width',
+        `min(${railWidthVw.toFixed(2)}vw, 220px)`
+      );
+      sideRails.style.setProperty('--rr-rail-edge', rgbaCss(accent, railAlpha));
+      sideRails.style.setProperty(
+        '--rr-rail-mid',
+        rgbaCss(accent, railAlpha * 0.48)
+      );
+      sideRails.style.setProperty(
+        '--rr-rail-tail',
+        rgbaCss(accent, railAlpha * 0.12)
+      );
+    }
 
     if (hasCustomPosition) {
       const left = Number.parseFloat(control.style.left);
@@ -1227,6 +1261,7 @@
 
   function mountUI() {
     document.getElementById('rer-reader-control')?.remove();
+    document.getElementById('rer-reading-rails')?.remove();
     document.getElementById('rer-reading-buffer-badge')?.remove();
     document.getElementById('rer-reading-buffer-panel')?.remove();
     document.querySelectorAll('.asr-reader-control').forEach(el => el.remove());
@@ -1243,6 +1278,18 @@
     controlLabel.className = 'rr-label';
 
     control.append(controlIcon, controlLabel);
+
+    sideRails = document.createElement('div');
+    sideRails.id = 'rer-reading-rails';
+    sideRails.setAttribute('aria-hidden', 'true');
+
+    const leftRail = document.createElement('span');
+    leftRail.className = 'rr-side-rail rr-side-rail-left';
+
+    const rightRail = document.createElement('span');
+    rightRail.className = 'rr-side-rail rr-side-rail-right';
+
+    sideRails.append(leftRail, rightRail);
 
     panel = document.createElement('div');
     panel.id = 'rer-reading-buffer-panel';
@@ -1339,6 +1386,39 @@
     });
     colorRow.append(colorInput);
 
+    const railsRow = document.createElement('label');
+    railsRow.className = 'rer-setting-row rer-slider-row';
+
+    const railsLabel = document.createElement('span');
+    railsLabel.textContent = 'Repères latéraux';
+
+    const railsControls = document.createElement('span');
+    railsControls.className = 'rer-slider-controls';
+
+    const railsInput = document.createElement('input');
+    railsInput.type = 'range';
+    railsInput.min = '0';
+    railsInput.max = '100';
+    railsInput.step = '1';
+    railsInput.value = String(appearance.rails);
+    railsInput.setAttribute(
+      'aria-label',
+      'Intensité et largeur des repères latéraux'
+    );
+
+    const railsOutput = document.createElement('output');
+    railsOutput.textContent = railsLevelLabel(appearance.rails);
+
+    railsInput.addEventListener('input', () => {
+      const value = Number(railsInput.value);
+      GM_setValue(READER_RAILS_KEY, value);
+      railsOutput.textContent = railsLevelLabel(value);
+      applyReaderAppearance();
+    });
+
+    railsControls.append(railsInput, railsOutput);
+    railsRow.append(railsLabel, railsControls);
+
     const opacityRow = document.createElement('label');
     opacityRow.className = 'rer-setting-row rer-slider-row';
 
@@ -1410,11 +1490,12 @@
       scrollRow,
       appearanceTitle,
       colorRow,
+      railsRow,
       opacityRow,
       sizeRow
     );
 
-    document.body.append(control, panel);
+    document.body.append(sideRails, control, panel);
     injectStyles();
     applyReaderAppearance();
     loadSavedControlPosition();
@@ -1564,6 +1645,51 @@
     const style = document.createElement('style');
     style.id = 'rer-reading-buffer-style';
     style.textContent = `
+      #rer-reading-rails {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483645;
+        overflow: hidden;
+        pointer-events: none;
+        opacity: 1;
+        transition: opacity 180ms ease;
+      }
+
+      #rer-reading-rails.rr-off {
+        opacity: 0;
+      }
+
+      #rer-reading-rails .rr-side-rail {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: var(--rr-rail-width, min(8vw, 120px));
+        pointer-events: none;
+        transition: width 180ms ease, background 180ms ease;
+      }
+
+      #rer-reading-rails .rr-side-rail-left {
+        left: 0;
+        background: linear-gradient(
+          90deg,
+          var(--rr-rail-edge, rgba(73,198,214,.08)) 0%,
+          var(--rr-rail-mid, rgba(73,198,214,.04)) 34%,
+          var(--rr-rail-tail, rgba(73,198,214,.01)) 72%,
+          transparent 100%
+        );
+      }
+
+      #rer-reading-rails .rr-side-rail-right {
+        right: 0;
+        background: linear-gradient(
+          270deg,
+          var(--rr-rail-edge, rgba(73,198,214,.08)) 0%,
+          var(--rr-rail-mid, rgba(73,198,214,.04)) 34%,
+          var(--rr-rail-tail, rgba(73,198,214,.01)) 72%,
+          transparent 100%
+        );
+      }
+
       #rer-reader-control {
         position: fixed;
         right: 16px;
