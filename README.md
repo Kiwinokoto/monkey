@@ -1,6 +1,6 @@
 # Monkey
 
-Petite collection de userscripts de confort pour la lecture sur le Web.
+Petite collection d’outils de confort pour la lecture sur le Web : userscripts et prototype d’extension.
 
 Compatibles avec **Violentmonkey** et **Tampermonkey**.
 
@@ -8,7 +8,7 @@ Compatibles avec **Violentmonkey** et **Tampermonkey**.
 
 ### Recommandé : un seul script pour lire dans le RER, le métro ou le train
 
-- ⭐ [Installer RER Reader — Buffer + Comic Auto Scroll](https://raw.githubusercontent.com/Kiwinokoto/monkey/refs/heads/main/RER-Reader.user.js)
+- ⭐ [Installer RER Reader](https://raw.githubusercontent.com/Kiwinokoto/monkey/refs/heads/main/RER-Reader.user.js)
 
 **RER Reader** active :
 
@@ -119,6 +119,29 @@ Le contrôleur utilise un thème « verre » dérivé automatiquement de la coul
 Le panneau Reader contient aussi le switch d'auto-scroll. Le profil **comics** utilise de grands pas et une large plage de vitesses ; le profil **novels** utilise des pas de 10 px/s et une plage plus lente.
 
 La purge manuelle du cache n'est pas exposée dans l'interface normale : le buffer se gère automatiquement.
+
+## Extension Firefox expérimentale
+
+Le Reader existe maintenant aussi sous forme de **WebExtension Manifest V3**
+dans le dossier `extension/`.
+
+L’intérêt est surtout l’installation finale : une fois publiée et signée sur
+Mozilla Add-ons, l’utilisateur pourra installer **RER Reader directement comme
+une extension**, sans installer Violentmonkey ou Tampermonkey au préalable.
+
+Pour l’instant, cette version est un prototype prêt à tester sur Firefox
+desktop via `about:debugging`. Sur Android, tant qu’elle n’est pas publiée
+sur AMO, la méthode **Firefox + Violentmonkey + userscript** reste la plus
+simple.
+
+Le code n’est pas dupliqué à la main : `extension/content.js` est généré à
+partir de `RER-Reader.user.js` avec :
+
+```bash
+python extension/build_extension.py
+```
+
+Une CI vérifie que la version extension reste synchronisée avec le userscript.
 
 ## Compatibilité
 
