@@ -27,6 +27,20 @@ Il remplace donc, pour cet usage, l'installation simultanée de `RER Reading Buf
 
 Avec Violentmonkey ou Tampermonkey installé, ouvre directement un lien ci-dessus puis clique sur **Installer** / **Mettre à jour**. Si le navigateur affiche seulement le code brut, utilise **Install from URL / Installer depuis une URL** dans le gestionnaire de userscripts.
 
+## Installation sur Android
+
+La voie **testée et recommandée pour ce projet** est Firefox pour Android. Firefox prend officiellement en charge les extensions sur Android, contrairement à Chrome Android. D'autres navigateurs Android capables de charger des extensions peuvent éventuellement fonctionner, mais ils ne sont pas testés ici.
+
+1. Installer **Firefox pour Android** : https://www.mozilla.org/firefox/browsers/mobile/android/
+2. Dans Firefox, installer un gestionnaire de userscripts :
+   - **Violentmonkey** — recommandé ici, open source sous licence MIT : https://addons.mozilla.org/android/addon/violentmonkey/
+   - ou **Tampermonkey** : https://addons.mozilla.org/android/addon/tampermonkey/
+3. Ouvrir dans Firefox le lien direct du Reader :
+   - https://raw.githubusercontent.com/Kiwinokoto/monkey/refs/heads/main/RER-Reader.user.js
+4. Violentmonkey ou Tampermonkey reconnaît le fichier `.user.js` : appuyer sur **Installer** / **Mettre à jour**.
+
+Une fois installé, le Reader s'exécute automatiquement sur les pages de lecture compatibles. Il n'est pas nécessaire de recopier le code à chaque utilisation.
+
 ## RER Reader
 
 Fichier : `RER-Reader.user.js`
