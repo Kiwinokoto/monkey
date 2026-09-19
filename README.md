@@ -120,28 +120,28 @@ Le panneau Reader contient aussi le switch d'auto-scroll. Le profil **comics** u
 
 La purge manuelle du cache n'est pas exposée dans l'interface normale : le buffer se gère automatiquement.
 
-## Extension Firefox expérimentale
+## Extension navigateur expérimentale
 
-Le Reader existe maintenant aussi sous forme de **WebExtension Manifest V3**
-dans le dossier `extension/`.
+Le Reader existe aussi sous forme de **WebExtension Manifest V3** pour Firefox
+et Chrome/Chromium dans le dossier `extension/`.
 
-L’intérêt est surtout l’installation finale : une fois publiée et signée sur
-Mozilla Add-ons, l’utilisateur pourra installer **RER Reader directement comme
-une extension**, sans installer Violentmonkey ou Tampermonkey au préalable.
-
-Pour l’instant, cette version est un prototype prêt à tester sur Firefox
-desktop via `about:debugging`. Sur Android, tant qu’elle n’est pas publiée
-sur AMO, la méthode **Firefox + Violentmonkey + userscript** reste la plus
-simple.
-
-Le code n’est pas dupliqué à la main : `extension/content.js` est généré à
-partir de `RER-Reader.user.js` avec :
+Le code fonctionnel n’est pas dupliqué : `RER-Reader.user.js` reste la source
+de vérité. Le build fusionne un manifest commun avec de petits overlays Firefox
+et Chrome, puis génère les deux packages :
 
 ```bash
 python extension/build_extension.py
 ```
 
-Une CI vérifie que la version extension reste synchronisée avec le userscript.
+Firefox déclare explicitement le support Android et **aucune collecte de
+données** pour une future soumission à Mozilla Add-ons (AMO). La CI reconstruit
+les deux variantes, valide le JavaScript et les manifests, puis passe
+`web-ext lint` sur le package Firefox.
+
+Pour l’instant, la méthode **Firefox + Violentmonkey + userscript** reste la
+plus simple sur Android tant que l’extension n’est pas signée/publiée.
+
+Voir aussi : [politique de confidentialité](PRIVACY.md).
 
 ## Compatibilité
 
