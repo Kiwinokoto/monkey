@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auto Scroll Manga / Manhua / Comics
 // @namespace    local.auto-scroll-reader
-// @version      1.9
+// @version      2.0.0
 // @description  Ajoute un bouton flottant, déplaçable et réglable pour scroller automatiquement sur les sites de lecture.
 // @include      /^https?:\/\/.*(manga|manhua|manhwa|webtoon|comic|comics|webcomic|scantrad).*$/
 // @noframes
@@ -19,13 +19,16 @@
   const MIN_SPEED = -1000;
   const MAX_SPEED = 1000;
   const SPEED_STEP = 50;
+  const TOUCH_LONG_PRESS_MS = 450;
+  const TOUCH_SWIPE_THRESHOLD_PX = 12;
+  const TOUCH_SPEED_PX_PER_STEP = 32;
 
   let scrolling = false;
   let buttonHovered = false;
   let rafId = null;
   let lastTimestamp = null;
   let scrollTargetY = null;
-  let dragState = null;
+  let gestureState = null;
   let suppressNextClick = false;
   let hasCustomPosition = false;
 
@@ -211,7 +214,9 @@
       button.style.opacity = scrolling ? "0.5" : "0.9";
     }
 
-    button.style.cursor = dragState
+    const dragging = gestureState?.mode === "drag";
+
+    button.style.cursor = dragging
       ? "grabbing"
       : scrolling && buttonHovered
         ? "none"
@@ -495,33 +500,72 @@
     }
   }
 
-  function finishDrag(event) {
+  function clearLongPressTimer() {
+    if (!gestureState?.longPressTimerId) {
+      return;
+    }
+
+    clearTimeout(gestureState.longPressTimerId);
+    gestureState.longPressTimerId = null;
+  }
+
+  function enterDragMode() {
+    if (!gestureState || gestureState.mode !== "tap") {
+      return;
+    }
+
+    const rect = button.getBoundingClientRect();
+
+    gestureState.mode = "drag";
+    gestureState.originLeft = rect.left;
+    gestureState.originTop = rect.top;
+    suppressNextClick = true;
+    updateButton();
+  }
+
+  function speedStepsForDelta(deltaY) {
+    const distance = Math.abs(deltaY);
+
+    if (distance < TOUCH_SWIPE_THRESHOLD_PX) {
+      return 0;
+    }
+
+    const direction = deltaY < 0 ? 1 : -1;
+
+    return direction * (
+      1 +
+      Math.floor(
+        (distance - TOUCH_SWIPE_THRESHOLD_PX) /
+        TOUCH_SPEED_PX_PER_STEP
+      )
+    );
+  }
+
+  function finishPointerGesture(event) {
     if (
-      !dragState ||
-      event.pointerId !== dragState.pointerId
+      !gestureState ||
+      event.pointerId !== gestureState.pointerId
     ) {
       return;
     }
 
-    if (dragState.moved) {
+    const state = gestureState;
+    clearLongPressTimer();
+
+    if (state.mode === "drag") {
       const rect = button.getBoundingClientRect();
+      setButtonPosition(rect.left, rect.top, true);
+    }
 
-      setButtonPosition(
-        rect.left,
-        rect.top,
-        true
-      );
-
-      if (event.type === "pointerup") {
-        suppressNextClick = true;
-      }
+    if (state.mode !== "tap" || event.type === "pointercancel") {
+      suppressNextClick = true;
     }
 
     if (button.hasPointerCapture(event.pointerId)) {
       button.releasePointerCapture(event.pointerId);
     }
 
-    dragState = null;
+    gestureState = null;
     updateButton();
   }
 
@@ -533,6 +577,10 @@
     }
 
     toggleScroll({ useFullscreen: true });
+  });
+
+  button.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
   });
 
   button.addEventListener("mouseenter", () => {
@@ -549,56 +597,112 @@
 
   button.addEventListener("pointerdown", (event) => {
     if (
-      event.pointerType === "mouse" &&
-      event.button !== 0
+      gestureState ||
+      (event.pointerType === "mouse" && event.button !== 0)
     ) {
       return;
     }
 
     const rect = button.getBoundingClientRect();
 
-    dragState = {
+    gestureState = {
       pointerId: event.pointerId,
+      pointerType: event.pointerType,
       startX: event.clientX,
       startY: event.clientY,
       originLeft: rect.left,
       originTop: rect.top,
-      moved: false,
+      mode: "tap",
+      speedSteps: 0,
+      longPressTimerId: null,
     };
 
     button.setPointerCapture(event.pointerId);
+
+    if (event.pointerType !== "mouse") {
+      gestureState.longPressTimerId = setTimeout(() => {
+        enterDragMode();
+      }, TOUCH_LONG_PRESS_MS);
+    }
+
     updateButton();
   });
 
   button.addEventListener("pointermove", (event) => {
     if (
-      !dragState ||
-      event.pointerId !== dragState.pointerId
+      !gestureState ||
+      event.pointerId !== gestureState.pointerId
     ) {
       return;
     }
 
-    const deltaX = event.clientX - dragState.startX;
-    const deltaY = event.clientY - dragState.startY;
+    const deltaX = event.clientX - gestureState.startX;
+    const deltaY = event.clientY - gestureState.startY;
+    const distance = Math.hypot(deltaX, deltaY);
 
-    if (
-      !dragState.moved &&
-      Math.hypot(deltaX, deltaY) < 4
-    ) {
+    // Souris : on conserve le drag immédiat historique.
+    if (gestureState.pointerType === "mouse") {
+      if (
+        gestureState.mode === "tap" &&
+        distance >= 4
+      ) {
+        gestureState.mode = "drag";
+        suppressNextClick = true;
+        updateButton();
+      }
+
+      if (gestureState.mode === "drag") {
+        event.preventDefault();
+        setButtonPosition(
+          gestureState.originLeft + deltaX,
+          gestureState.originTop + deltaY
+        );
+      }
+
       return;
     }
 
-    dragState.moved = true;
-    event.preventDefault();
+    if (gestureState.mode === "drag") {
+      event.preventDefault();
+      setButtonPosition(
+        gestureState.originLeft + deltaX,
+        gestureState.originTop + deltaY
+      );
+      return;
+    }
 
-    setButtonPosition(
-      dragState.originLeft + deltaX,
-      dragState.originTop + deltaY
-    );
+    if (gestureState.mode === "tap") {
+      const verticalEnough =
+        Math.abs(deltaY) >= TOUCH_SWIPE_THRESHOLD_PX &&
+        Math.abs(deltaY) > Math.abs(deltaX) * 1.2;
+
+      if (verticalEnough) {
+        clearLongPressTimer();
+        gestureState.mode = "speed";
+        suppressNextClick = true;
+      } else if (distance >= TOUCH_SWIPE_THRESHOLD_PX) {
+        // Un geste surtout horizontal sur le bouton ne déclenche rien.
+        clearLongPressTimer();
+        gestureState.mode = "cancelled";
+        suppressNextClick = true;
+      }
+    }
+
+    if (gestureState.mode === "speed") {
+      event.preventDefault();
+
+      const steps = speedStepsForDelta(deltaY);
+      const deltaSteps = steps - gestureState.speedSteps;
+
+      if (deltaSteps !== 0) {
+        gestureState.speedSteps = steps;
+        changeSpeed(deltaSteps * SPEED_STEP);
+      }
+    }
   });
 
-  button.addEventListener("pointerup", finishDrag);
-  button.addEventListener("pointercancel", finishDrag);
+  button.addEventListener("pointerup", finishPointerGesture);
+  button.addEventListener("pointercancel", finishPointerGesture);
 
   button.addEventListener(
     "wheel",
