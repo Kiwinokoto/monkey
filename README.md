@@ -45,20 +45,24 @@ Une fois installé, le Reader s'exécute automatiquement sur les pages de lectur
 
 Fichier : `RER-Reader.user.js`
 
-C'est le script tout-en-un destiné à la lecture mobile :
+C'est le script tout-en-un destiné à la lecture sur ordinateur et mobile :
 
 - buffer glissant jusqu'à **5 chapitres** ;
 - navigation **cache-first** : un clic sur le vrai `Next` ouvre d'abord la copie IndexedDB si elle existe, puis le Reader recharge seulement ce qui manque en arrière-plan ;
 - conservation du HTML et, lorsque le CDN l'autorise, des images ;
 - arrêt propre sur `401`, `403` et `429` ;
 - protection contre les liens « suivant » en boucle ;
-- le badge `📚 x/5` est **éphémère** quand tout va bien et reste visible lorsqu'une intervention peut être utile ;
+- **un seul contrôleur adaptatif** représente le Reader : `📚 4/5 → 5/5` pendant le travail du buffer, puis `▶ / ❚❚` pour l'auto-scroll sur les comics ;
+- sur un novel, le contrôleur disparaît quand le buffer n'a plus rien à signaler ; en cas de problème il reste visible ;
+- la vitesse n'est affichée que pendant son réglage, puis le contrôle redevient compact ;
 - auto-scroll comics : **-1000 à 1000 px/s**, pas de **50 px/s** ;
 - pendant l'auto-scroll, le contrôle devient presque transparent après un court délai ;
 - toucher ou cliquer ailleurs dans la page arrête l'auto-scroll sans bloquer l'action normale du site ;
-- sur un novel, seul le buffer démarre ;
-- contrôles tactiles : tap = play/pause, swipe vertical sur le bouton = vitesse, appui long puis glisser = déplacement ;
-- le `⋮` du contrôle (ou clic droit sur ordinateur) ouvre le panneau Reader : couleur libre via le sélecteur natif, opacité au repos et taille du contrôle.
+- le contrôle est déplaçable et sa position est mémorisée **par site et par mode de lecture** : un comic et un novel peuvent donc avoir des positions différentes ;
+- l'apparence est générée à partir d'une seule couleur choisie : surface en verre translucide, reflet, bordure dérivée plus sombre et texte noir ou blanc sélectionné automatiquement selon le contraste ;
+- sur mobile : tap = play/pause sur comics, swipe vertical = vitesse, appui long puis glisser = déplacement, appui long immobile puis relâcher = réglages ;
+- sur ordinateur : clic = play/pause, molette/flèches = vitesse, glisser = déplacement, clic droit = réglages ;
+- le panneau se ferme aussi en cliquant ou touchant en dehors.
 
 Le buffer possède également un garde anti-double-exécution : si le script standalone `RER Reading Buffer` est encore activé pendant une migration, un seul des deux buffers démarre.
 
@@ -92,24 +96,23 @@ Fichier : `RER-Reading-Buffer.user.js`
 
 Version standalone du buffer. Utile si l'on ne veut **aucun auto-scroll**.
 
-## Contrôles des Auto Scroll
+## Contrôles du Reader
 
 | Action | Ordinateur | Mobile / tactile |
 | --- | --- | --- |
-| Activer / désactiver | Clic sur le bouton ou `Espace` | Tap sur le bouton |
-| Accélérer | `Flèche haut` ou molette vers le haut sur le bouton | Swipe vers le haut en partant du bouton |
-| Ralentir | `Flèche bas` ou molette vers le bas sur le bouton | Swipe vers le bas en partant du bouton |
-| Déplacer le bouton | Glisser-déposer | Appui long (~450 ms), puis glisser |
-| Ouvrir les réglages Reader | `⋮` ou clic droit sur le contrôle | Tap sur `⋮` |
+| Activer / désactiver l'auto-scroll | Clic sur le contrôle ou `Espace` | Tap sur le contrôle |
+| Accélérer | `Flèche haut` ou molette vers le haut | Swipe vers le haut en partant du contrôle |
+| Ralentir | `Flèche bas` ou molette vers le bas | Swipe vers le bas en partant du contrôle |
+| Déplacer le contrôle | Glisser-déposer | Appui long (~450 ms), puis glisser |
+| Ouvrir les réglages | Clic droit sur le contrôle | Appui long immobile, puis relâcher |
+| Fermer les réglages | `×`, `Échap` ou clic ailleurs | `×` ou tap ailleurs |
 | Reprendre la main pendant l'auto-scroll | Cliquer ailleurs dans la page | Toucher / swiper ailleurs dans la page |
 
-Sur mobile, le geste doit **commencer sur le bouton**, mais le doigt peut ensuite sortir largement de sa surface : le script utilise le *pointer capture* jusqu'au relâchement. Le reste de la page conserve ses gestes habituels.
+Le geste tactile doit commencer sur le contrôle, mais le doigt peut ensuite sortir largement de sa surface grâce au *pointer capture*. La vitesse apparaît uniquement pendant le réglage.
 
-Pour la vitesse, un premier mouvement vertical d'environ **12 px** déclenche un cran, puis environ **32 px supplémentaires** ajoutent un cran. Un cran vaut **50 px/s** pour le scroller comics et **10 px/s** pour le scroller novels.
+Le contrôleur utilise un thème « verre » dérivé automatiquement de la couleur choisie. Le Reader calcule la bordure et la couleur du texte pour conserver un contraste lisible. La position est enregistrée séparément par site et par mode de lecture.
 
-Pendant l'auto-scroll, le contrôle s'estompe automatiquement. Une interaction ailleurs dans la page arrête le défilement automatique **sans intercepter** le clic, le lien ou le geste tactile.
-
-Le panneau Reader propose un sélecteur de couleur natif, l'opacité au repos et trois tailles de contrôle. Les raccourcis clavier sont ignorés lorsqu'un champ de saisie ou un élément interactif est utilisé.
+La purge manuelle du cache n'est pas exposée dans l'interface normale : le buffer se gère automatiquement.
 
 ## Compatibilité
 
