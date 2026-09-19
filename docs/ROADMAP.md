@@ -90,5 +90,15 @@ Contraintes :
 - sur comics/lazy-loading, l'estimation peut fluctuer ;
 - ne pas implémenter sans validation visuelle.
 
+### Night Dimmer
+Idée de confort à garder pour plus tard : ajouter un voile local à la page, réglable et mémorisé par site, pour assombrir le contenu au-delà de la luminosité minimale proposée par l'écran ou le système.
+
+Principes :
+- ne pas essayer de piloter la luminosité matérielle du téléphone ou de l'ordinateur ;
+- privilégier un overlay visuel simple et cross-platform ;
+- désactivé par défaut ;
+- éviter d'assombrir excessivement le bouton/panneau Reader afin de garder les contrôles lisibles ;
+- intérêt surtout sur ordinateur ou pour les écrans encore trop lumineux au minimum ; utilité plus secondaire sur Android où le contrôle système de luminosité est généralement déjà fin.
+
 ### TTS / traduction
 À garder comme piste expérimentale, pas dans le coeur de V3 pour l'instant. Examiner notamment les retours d'expérience des projets de Samuel Létang avant tout choix d'API ou de modèle.
