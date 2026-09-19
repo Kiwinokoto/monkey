@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RER Reading Buffer
 // @namespace    kiwinokoto.local
-// @version      0.1.2
+// @version      0.1.3
 // @description  Garde jusqu'a 5 chapitres/pages de lecture d'avance pour les coupures reseau.
 // @author       Kevin + ChatGPT
 // @match        *://*/*
@@ -11,6 +11,11 @@
 
 (() => {
   'use strict';
+
+  // Evite qu'un buffer standalone et un script combine ne tournent en double.
+  const BUFFER_ACTIVE_ATTR = 'data-rer-reading-buffer-active';
+  if (document.documentElement.hasAttribute(BUFFER_ACTIVE_ATTR)) return;
+  document.documentElement.setAttribute(BUFFER_ACTIVE_ATTR, '1');
 
   // ---------------------------------------------------------------------------
   // Reglages simples
@@ -24,7 +29,7 @@
   const DB_NAME = 'rer-reading-buffer-v1';
   const DB_VERSION = 1;
 
-  const READER_URL_RE = /(manga|manhwa|manhua|novel|chapter|chapitre|reader|read)/i;
+  const READER_URL_RE = /(manga|manhwa|manhua|webtoon|comic|webcomic|scantrad|novel|webnovel|lightnovel|fiction|wuxia|chapter|chapitre|reader|read)/i;
   const NEXT_TEXT_RE = /^(?:next(?:\s+chapter)?|chapter\s+next|chapitre\s+suivant|suivant|next\s*[›»→]?|[›»→])$/i;
   const PREV_TEXT_RE = /^(?:prev(?:ious)?(?:\s+chapter)?|chapter\s+prev(?:ious)?|chapitre\s+pr[eé]c[eé]dent|pr[eé]c[eé]dent|[‹«←])$/i;
 
@@ -194,7 +199,7 @@
     if (READER_URL_RE.test(url) && findNextUrl(doc, url)) return true;
 
     const text = doc.body?.innerText?.slice(0, 8000) || '';
-    return Boolean(findNextUrl(doc, url) && /chapter|chapitre|manga|manhwa|manhua|novel/i.test(text));
+    return Boolean(findNextUrl(doc, url) && /chapter|chapitre|manga|manhwa|manhua|webtoon|comic|webcomic|novel|webnovel|lightnovel|fiction|wuxia/i.test(text));
   }
 
   // ---------------------------------------------------------------------------
