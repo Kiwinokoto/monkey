@@ -52,8 +52,8 @@ C'est le script tout-en-un destiné à la lecture sur ordinateur et mobile :
 - conservation du HTML et, lorsque le CDN l'autorise, des images ;
 - arrêt propre sur `401`, `403` et `429` ;
 - protection contre les liens « suivant » en boucle ;
-- **un seul contrôleur adaptatif** représente le Reader : `📚 4/5 → 5/5` pendant le travail du buffer, puis `▶ / ❚❚` pour l'auto-scroll sur les comics ;
-- sur un novel, le contrôleur disparaît quand le buffer n'a plus rien à signaler ; en cas de problème il reste visible ;
+- **un seul contrôleur adaptatif** représente le Reader : `📚 4/5 → 5/5` pendant le travail du buffer, puis `▶ / ❚❚` lorsque l'auto-scroll est activé ;
+- sur un novel, l'auto-scroll est désactivé par défaut : après le buffer, le contrôle se réduit à un petit `⚙` très discret pour garder un accès aux réglages ; en cas de problème il redevient clairement visible ;
 - la vitesse n'est affichée que pendant son réglage, puis le contrôle redevient compact ;
 - auto-scroll comics : **-1000 à 1000 px/s**, pas de **50 px/s** ;
 - auto-scroll novels : **-300 à 100 px/s**, pas de **10 px/s**, vitesse initiale **40 px/s** ;
@@ -103,12 +103,12 @@ Version standalone du buffer. Utile si l'on ne veut **aucun auto-scroll**.
 
 | Action | Ordinateur | Mobile / tactile |
 | --- | --- | --- |
-| Activer / désactiver l'auto-scroll | Clic sur le contrôle ou `Espace` | Tap sur le contrôle |
+| Démarrer / arrêter l'auto-scroll (s'il est activé) | Clic sur le contrôle ou `Espace` | Tap sur le contrôle |
 | Accélérer | `Flèche haut` ou molette vers le haut | Swipe vers le haut en partant du contrôle |
 | Ralentir | `Flèche bas` ou molette vers le bas | Swipe vers le bas en partant du contrôle |
 | Déplacer le contrôle | Glisser-déposer | Appui long (~450 ms), puis glisser |
 | Ouvrir les réglages | Clic droit sur le contrôle | Appui long immobile, puis relâcher |
-| Activer / désactiver l'auto-scroll | Switch dans le panneau Reader | Switch dans le panneau Reader |
+| Activer / désactiver la fonction auto-scroll | Switch dans le panneau Reader | Switch dans le panneau Reader |
 | Fermer les réglages | `×`, `Échap` ou clic ailleurs | `×` ou tap ailleurs |
 | Reprendre la main pendant l'auto-scroll | Cliquer ailleurs dans la page | Toucher / swiper ailleurs dans la page |
 
