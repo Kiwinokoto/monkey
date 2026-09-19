@@ -86,3 +86,28 @@ test("smooth-scroll regressions stay guarded", () => {
     source.split("scrollingElement.scrollHeight").length - 1;
   assert.equal(scrollHeightReads, 1);
 });
+  
+test("compact panel keeps Buffer and Auto-scroll on single rows", () => {
+  assert.ok(source.includes("title.textContent = 'Buffer';"));
+  assert.ok(source.includes("scrollRow.className = 'rer-setting-row rer-scroll-row';"));
+  assert.ok(source.includes("scrollRow.append(scrollLabel, scrollMeta, switchLabel);"));
+  assert.ok(source.includes("scrollMeta.textContent = scrollState.available"));
+  assert.ok(source.includes("${scrollState.speed} px/s"));
+  assert.ok(!source.includes("readingTitle.textContent = 'Lecture';"));
+  assert.ok(!source.includes("Profil novel"));
+  assert.ok(!source.includes("Profil comics"));
+  assert.ok(!source.includes("rer-reading-buffer-close"));
+});
+
+test("size and opacity also shape the lateral rails", () => {
+  assert.ok(source.includes("const railScale = 0.78 + 0.44 * sizeT;"));
+  assert.ok(source.includes("const railAlpha = 0.36 * appearance.opacity;"));
+  assert.ok(source.includes("'Largeur des repères latéraux'"));
+  assert.ok(source.includes("'Opacité du bouton et des repères latéraux'"));
+  assert.ok(source.includes("'Taille du bouton et échelle maximale des repères latéraux'"));
+
+  const panelStart = source.indexOf("panel.append(");
+  const panelBlock = source.slice(panelStart, panelStart + 260);
+  assert.ok(panelBlock.indexOf("sizeRow") < panelBlock.indexOf("opacityRow"));
+  assert.ok(panelBlock.indexOf("opacityRow") < panelBlock.indexOf("railsRow"));
+});

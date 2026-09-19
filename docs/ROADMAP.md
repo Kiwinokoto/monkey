@@ -28,7 +28,18 @@ Principe : **un seul fichier à installer, plusieurs fichiers à développer**.
 - `tests/` : régressions légères exécutées en CI ;
 - `archive/legacy-userscripts/` : anciens scripts séparés, conservés uniquement pour référence.
 
-Le build doit rester sans dépendance lourde. TypeScript/esbuild pourra être introduit plus tard si le découpage fonctionnel le justifie ; ce n'est pas nécessaire pour cette première modularisation.
+La migration des sources vers **TypeScript est validée**. Elle doit rester progressive et conserver le principe « plusieurs sources de développement -> un seul userscript généré ». Un bundler léger (esbuild) et un type-check TypeScript sont préférables à un framework UI. La migration ne doit pas changer l'URL d'installation ni réduire la compatibilité Firefox/Chromium.
+
+## Décisions UX du panneau
+
+- la croix de fermeture est supprimée : un clic hors du panneau, y compris sur le bouton Reader, ferme déjà le panneau ;
+- première ligne compacte : **Buffer** à gauche, état du buffer/réseau à droite ;
+- en développement, garder `Réseau OK` aide au diagnostic ; pour l'UI finale, candidat préféré : rester silencieux lorsque le réseau est normal et signaler explicitement seulement `Hors ligne · cache` ou un problème ;
+- deuxième ligne : **Auto-scroll** à gauche, vitesse actuelle au centre, switch à droite ; ne pas afficher le profil novel/comics ni le pas de vitesse ;
+- ordre Apparence : couleur, taille, opacité, repères latéraux ;
+- **Taille** agit sur le bouton et sur l'enveloppe de largeur disponible pour les repères ;
+- **Opacité** agit sur le bouton et sur les repères ;
+- **Repères latéraux** règle essentiellement leur largeur (0 = désactivés), dans les bornes influencées par Taille.
 
 ## V3 validée
 

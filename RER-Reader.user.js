@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RER Reader
 // @namespace    kiwinokoto.rer-reader
-// @version      1.4.9
+// @version      1.4.10
 // @description  Reader cache-first avec buffer de 5 chapitres et auto-scroll adaptatif comics/novels sur desktop et mobile.
 // @author       Kevin + ChatGPT
 // @homepageURL  https://github.com/Kiwinokoto/monkey
@@ -964,15 +964,20 @@
 
     if (sideRails) {
       const railT = appearance.rails / 100;
-      const railWidthVw = 3 + 15 * railT;
-      const railAlpha = 0.34 * Math.pow(railT, 1.12);
+      const sizeT = Math.max(0, Math.min(1, (appearance.size - 36) / 32));
+      const railScale = 0.78 + 0.44 * sizeT;
+      const railMinVw = 2.25 * railScale;
+      const railMaxVw = 18 * railScale;
+      const railWidthVw = railMinVw + (railMaxVw - railMinVw) * railT;
+      const railMaxPx = 220 * railScale;
+      const railAlpha = 0.36 * appearance.opacity;
       const waveAlpha = Math.min(0.46, railAlpha * 1.28);
       const sparkAlpha = Math.min(0.58, railAlpha * 1.52);
 
       sideRails.classList.toggle('rr-off', appearance.rails <= 0);
       sideRails.style.setProperty(
         '--rr-rail-width',
-        `min(${railWidthVw.toFixed(2)}vw, 220px)`
+        `min(${railWidthVw.toFixed(2)}vw, ${railMaxPx.toFixed(0)}px)`
       );
       sideRails.style.setProperty('--rr-rail-edge', rgbaCss(accent, railAlpha));
       sideRails.style.setProperty(
@@ -1190,9 +1195,9 @@
     if (info) {
       const parts = [
         `📚 ${status.cachedAhead}/${LOOKAHEAD}`,
-        navigator.onLine ? 'Réseau OK' : 'Réseau indisponible',
+        navigator.onLine ? 'Réseau OK' : 'Hors ligne · cache',
       ];
-      if (status.problem) parts.push(status.message);
+      if (status.problem && status.message) parts.push(status.message);
       info.textContent = parts.join(' · ');
     }
 
@@ -1204,13 +1209,9 @@
 
     const scrollMeta = panel.querySelector('.rer-scroll-meta');
     if (scrollMeta) {
-      const modeLabel = scrollState.mode === 'novel' ? 'Profil novel' : 'Profil comics';
-      const stepLabel = scrollState.mode === 'novel'
-        ? 'pas 5/10'
-        : 'pas ' + scrollState.speedStep;
       scrollMeta.textContent = scrollState.available
-        ? modeLabel + ' · ' + scrollState.speed + ' px/s · ' + stepLabel
-        : 'Auto-scroll indisponible sur cette page';
+        ? `${scrollState.speed} px/s`
+        : 'Indisponible';
     }
 
     const retryBtn = panel.querySelector('#rer-reading-buffer-retry');
@@ -1439,19 +1440,12 @@
     header.className = 'rer-panel-header';
 
     const title = document.createElement('strong');
-    title.textContent = 'Reader';
+    title.textContent = 'Buffer';
 
-    const closeBtn = document.createElement('button');
-    closeBtn.id = 'rer-reading-buffer-close';
-    closeBtn.type = 'button';
-    closeBtn.textContent = '×';
-    closeBtn.setAttribute('aria-label', 'Fermer');
-    closeBtn.addEventListener('click', closeReaderPanel);
-
-    header.append(title, closeBtn);
-
-    const info = document.createElement('div');
+    const info = document.createElement('span');
     info.className = 'rer-status';
+
+    header.append(title, info);
 
     const retryBtn = document.createElement('button');
     retryBtn.id = 'rer-reading-buffer-retry';
@@ -1461,23 +1455,15 @@
 
     const appearance = getReaderAppearance();
 
-    const readingTitle = document.createElement('div');
-    readingTitle.className = 'rer-section-title';
-    readingTitle.textContent = 'Lecture';
-
     const scrollRow = document.createElement('div');
-    scrollRow.className = 'rer-setting-row rer-switch-row';
-
-    const scrollText = document.createElement('div');
-    scrollText.className = 'rer-setting-copy';
+    scrollRow.className = 'rer-setting-row rer-scroll-row';
 
     const scrollLabel = document.createElement('strong');
+    scrollLabel.className = 'rer-inline-title';
     scrollLabel.textContent = 'Auto-scroll';
 
     const scrollMeta = document.createElement('span');
     scrollMeta.className = 'rer-scroll-meta';
-
-    scrollText.append(scrollLabel, scrollMeta);
 
     const switchLabel = document.createElement('label');
     switchLabel.className = 'rer-switch';
@@ -1505,7 +1491,7 @@
     switchTrack.className = 'rer-switch-track';
 
     switchLabel.append(scrollToggle, switchTrack);
-    scrollRow.append(scrollText, switchLabel);
+    scrollRow.append(scrollLabel, scrollMeta, switchLabel);
 
     const appearanceTitle = document.createElement('div');
     appearanceTitle.className = 'rer-section-title';
@@ -1543,7 +1529,7 @@
     railsInput.value = String(appearance.rails);
     railsInput.setAttribute(
       'aria-label',
-      'Intensité et largeur des repères latéraux'
+      'Largeur des repères latéraux'
     );
 
     const railsOutput = document.createElement('output');
@@ -1574,7 +1560,10 @@
     opacityInput.max = '1';
     opacityInput.step = '0.05';
     opacityInput.value = String(appearance.opacity);
-    opacityInput.setAttribute('aria-label', 'Opacité au repos');
+    opacityInput.setAttribute(
+      'aria-label',
+      'Opacité du bouton et des repères latéraux'
+    );
 
     const opacityOutput = document.createElement('output');
     opacityOutput.textContent = `${Math.round(appearance.opacity * 100)}%`;
@@ -1605,7 +1594,10 @@
     sizeInput.max = '68';
     sizeInput.step = '1';
     sizeInput.value = String(appearance.size);
-    sizeInput.setAttribute('aria-label', 'Taille du contrôle');
+    sizeInput.setAttribute(
+      'aria-label',
+      'Taille du bouton et échelle maximale des repères latéraux'
+    );
 
     const sizeOutput = document.createElement('output');
     sizeOutput.textContent = `${Math.round(appearance.size)} px`;
@@ -1624,15 +1616,13 @@
 
     panel.append(
       header,
-      info,
       retryBtn,
-      readingTitle,
       scrollRow,
       appearanceTitle,
       colorRow,
-      railsRow,
+      sizeRow,
       opacityRow,
-      sizeRow
+      railsRow
     );
 
     document.body.append(sideRails, control, panel);
@@ -2056,17 +2046,25 @@
       }
 
       #rer-reading-buffer-panel .rer-panel-header {
-        margin-bottom: 7px;
-        font-size: 14px;
+        margin-bottom: 5px;
+        font-size: 12px;
       }
 
-      #rer-reading-buffer-panel .rer-panel-header strong {
+      #rer-reading-buffer-panel .rer-panel-header strong,
+      #rer-reading-buffer-panel .rer-inline-title {
         color: var(--rr-panel-accent, #7de6ef);
+        font-size: 11px;
+        font-weight: 750;
+        letter-spacing: .055em;
+        text-transform: uppercase;
       }
 
       #rer-reading-buffer-panel .rer-status {
-        margin-bottom: 7px;
-        opacity: .78;
+        max-width: 72%;
+        text-align: right;
+        opacity: .76;
+        font-size: 10.5px;
+        line-height: 1.25;
       }
 
       #rer-reading-buffer-panel .rer-section-title {
@@ -2085,19 +2083,22 @@
         margin: 4px 0;
       }
 
-      #rer-reading-buffer-panel .rer-setting-copy {
-        display: flex;
-        flex-direction: column;
-        gap: 1px;
-      }
-
-      #rer-reading-buffer-panel .rer-setting-copy strong {
-        font-size: 12px;
+      #rer-reading-buffer-panel .rer-scroll-row {
+        display: grid;
+        grid-template-columns: minmax(82px, 1fr) auto 42px;
+        align-items: center;
+        gap: 12px;
+        margin-top: 2px;
+        padding-bottom: 7px;
+        border-bottom: 1px solid rgba(255,255,255,.09);
       }
 
       #rer-reading-buffer-panel .rer-scroll-meta {
-        opacity: .62;
-        font-size: 10.5px;
+        min-width: 54px;
+        text-align: center;
+        opacity: .82;
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
       }
 
       #rer-reading-buffer-panel .rer-slider-controls {
@@ -2191,15 +2192,6 @@
         margin: 2px 0 5px;
       }
 
-      #rer-reading-buffer-close {
-        margin: 0 !important;
-        padding: 2px 7px !important;
-        background: transparent !important;
-        color: white !important;
-        font-size: 19px !important;
-        line-height: 1 !important;
-        cursor: pointer;
-      }
     `;
 
     document.head.appendChild(style);
@@ -2774,3 +2766,4 @@
 
   publishScrollState();
 })();
+
