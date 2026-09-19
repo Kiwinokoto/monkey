@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RER Reading Buffer
 // @namespace    kiwinokoto.local
-// @version      0.1.1
+// @version      0.1.2
 // @description  Garde jusqu'a 5 chapitres/pages de lecture d'avance pour les coupures reseau.
 // @author       Kevin + ChatGPT
 // @match        *://*/*
@@ -143,11 +143,12 @@
     const isNext = direction === 'next';
     const rel = isNext ? 'next' : 'prev';
     const textRe = isNext ? NEXT_TEXT_RE : PREV_TEXT_RE;
+    const currentUrl = absoluteUrl(baseUrl, baseUrl);
 
     const relLink = doc.querySelector(`a[rel~="${rel}"][href], link[rel~="${rel}"][href]`);
     if (relLink) {
       const url = absoluteUrl(relLink.getAttribute('href'), baseUrl);
-      if (url) return url;
+      if (url && url !== currentUrl) return url;
     }
 
     const candidates = [...doc.querySelectorAll('a[href]')];
@@ -156,7 +157,7 @@
 
     for (const a of candidates) {
       const url = absoluteUrl(a.getAttribute('href'), baseUrl);
-      if (!url) continue;
+      if (!url || url === currentUrl) continue;
 
       // Un buffer de lecture ne doit jamais partir precharger un autre domaine.
       if (new URL(url).origin !== new URL(baseUrl).origin) continue;
@@ -381,10 +382,20 @@
 
   async function collectCachedAhead(startUrl) {
     const records = [];
+    const seen = new Set();
+    const currentUrl = absoluteUrl(location.href, location.href);
+    if (currentUrl) seen.add(currentUrl);
+
     let nextUrl = startUrl;
 
     while (records.length < LOOKAHEAD && nextUrl) {
+      if (seen.has(nextUrl)) {
+        nextUrl = null;
+        break;
+      }
+
       if (new URL(nextUrl).origin !== location.origin) break;
+      seen.add(nextUrl);
 
       const record = await getFreshCachedChapter(nextUrl);
       if (!record) break;
@@ -430,6 +441,7 @@
       const cached = await collectCachedAhead(current.nextUrl);
       for (const record of cached.records) keep.add(record.url);
 
+      const seen = new Set(keep);
       status.cachedAhead = cached.records.length;
       let nextUrl = cached.nextUrl;
       const chaptersToImageCache = [];
@@ -443,8 +455,15 @@
       while (status.cachedAhead < LOOKAHEAD && nextUrl) {
         if (!navigator.onLine) break;
 
+        if (seen.has(nextUrl)) {
+          status.message = 'Boucle de navigation détectée — buffer arrêté proprement';
+          break;
+        }
+
         const sameOrigin = new URL(nextUrl).origin === location.origin;
         if (!sameOrigin) break;
+
+        seen.add(nextUrl);
 
         if (networkFetches > 0) await sleep(FETCH_DELAY_MS);
 
@@ -609,6 +628,15 @@
     panel.id = 'rer-reading-buffer-panel';
     panel.hidden = true;
 
+    const closeBtn = document.createElement('button');
+    closeBtn.id = 'rer-reading-buffer-close';
+    closeBtn.type = 'button';
+    closeBtn.textContent = '×';
+    closeBtn.setAttribute('aria-label', 'Fermer');
+    closeBtn.addEventListener('click', () => {
+      panel.hidden = true;
+    });
+
     const nextCachedBtn = document.createElement('button');
     nextCachedBtn.type = 'button';
     nextCachedBtn.textContent = 'Lire suivant en cache';
@@ -636,7 +664,7 @@
       updateUI();
     });
 
-    panel.append(nextCachedBtn, refreshBtn, clearBtn);
+    panel.append(closeBtn, nextCachedBtn, refreshBtn, clearBtn);
     document.body.append(badge, panel);
 
     injectStyles();
@@ -658,7 +686,7 @@
       #rer-reading-buffer-panel {
         position: fixed; right: 12px; bottom: 52px; z-index: 2147483646;
         min-width: 230px; max-width: min(330px, calc(100vw - 24px));
-        padding: 10px; border-radius: 12px; background: rgba(20,20,24,.95); color: white;
+        padding: 28px 10px 10px; border-radius: 12px; background: rgba(20,20,24,.95); color: white;
         font: 12px/1.4 system-ui,sans-serif; box-shadow: 0 4px 18px rgba(0,0,0,.35);
       }
       #rer-reading-buffer-panel[hidden] { display: none !important; }
@@ -666,6 +694,12 @@
       #rer-reading-buffer-panel button {
         margin: 3px 6px 0 0; border: 0; border-radius: 8px; padding: 6px 8px;
         background: #fff; color: #111; font: inherit; cursor: pointer;
+      }
+      #rer-reading-buffer-close {
+        position: absolute; top: 4px; right: 4px;
+        margin: 0 !important; padding: 2px 7px !important;
+        background: transparent !important; color: white !important;
+        font-size: 18px !important; line-height: 1 !important;
       }
     `;
     document.head.appendChild(style);
