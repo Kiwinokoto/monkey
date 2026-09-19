@@ -11,6 +11,7 @@ on:
       - "RER-Reader.user.js"
       - "extension/**"
       - ".github/workflows/extension-build-check.yml"
+  workflow_dispatch:
 
 jobs:
   build-check:
@@ -19,11 +20,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Rebuild extension
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build Firefox and Chrome packages
         run: python extension/build_extension.py
 
-      - name: Validate manifest JSON
-        run: python -m json.tool extension/manifest.json > /dev/null
+      - name: Validate generated JavaScript
+        run: node --check extension/content.js
 
-      - name: Ensure generated files are committed
+      - name: Validate manifests
+        run: |
+          python -m json.tool extension/manifest.base.json > /dev/null
+          python -m json.tool extension/manifest.firefox.json > /dev/null
+          python -m json.tool extension/manifest.chrome.json > /dev/null
+          python -m json.tool extension/manifest.json > /dev/null
+          python -m json.tool extension/dist/firefox/manifest.json > /dev/null
+          python -m json.tool extension/dist/chrome/manifest.json > /dev/null
+
+      - name: Lint Firefox package for AMO
+        run: npx --yes web-ext@10 lint --source-dir extension/dist/firefox --warnings-as-errors
+
+      - name: Ensure committed generated Firefox dev files are current
         run: git diff --exit-code -- extension/content.js extension/manifest.json
+
+      - name: Upload browser packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: rer-reader-extension-packages
+          path: extension/packages/*.zip
