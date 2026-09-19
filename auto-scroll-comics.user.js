@@ -3,7 +3,7 @@
 // @namespace    local.auto-scroll-reader
 // @version      1.9
 // @description  Ajoute un bouton flottant, déplaçable et réglable pour scroller automatiquement sur les sites de lecture.
-// @include      /^https?:\/\/.*(manga|manhua|manhwa|webtoon|comic|comics|webcomic|scantrad|hentai).*$/
+// @include      /^https?:\/\/.*(manga|manhua|manhwa|webtoon|comic|comics|webcomic|scantrad).*$/
 // @noframes
 // @grant        GM_getValue
 // @grant        GM_setValue
