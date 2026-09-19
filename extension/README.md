@@ -56,6 +56,9 @@ The package directories and ZIPs are generated artifacts and are ignored by Git.
 Temporary add-ons are removed when Firefox restarts. A signed Firefox package
 is required for a normal persistent installation.
 
+The Firefox package currently targets **Firefox 142+** on desktop and Android,
+matching the minimum version required by the AMO data-collection declaration.
+
 ## Firefox Android / AMO
 
 The Firefox manifest explicitly declares Android support with

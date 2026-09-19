@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RER Reader
 // @namespace    kiwinokoto.rer-reader
-// @version      1.4.1
+// @version      1.4.2
 // @description  Reader cache-first avec buffer de 5 chapitres et auto-scroll adaptatif comics/novels sur desktop et mobile.
 // @author       Kevin + ChatGPT
 // @match        *://*/*
@@ -371,9 +371,38 @@
   // ---------------------------------------------------------------------------
   // Chapitres
   // ---------------------------------------------------------------------------
+  function sanitizeCachedDocument(doc) {
+    doc.querySelectorAll(
+      'script, iframe, frame, frameset, object, embed, base, ' +
+      'meta[http-equiv="refresh"], #rer-reader-control, ' +
+      '#rer-reading-buffer-badge, #rer-reading-buffer-panel, .asr-reader-control'
+    ).forEach(el => el.remove());
+
+    for (const el of doc.querySelectorAll('*')) {
+      for (const attr of [...el.attributes]) {
+        const name = attr.name.toLowerCase();
+        const value = attr.value.trim();
+
+        // Cached HTML must remain inert when restored into the live page.
+        if (name.startsWith('on') || name === 'srcdoc') {
+          el.removeAttribute(attr.name);
+          continue;
+        }
+
+        if (
+          ['href', 'src', 'xlink:href', 'action', 'formaction'].includes(name) &&
+          /^javascript:/i.test(value)
+        ) {
+          el.removeAttribute(attr.name);
+        }
+      }
+    }
+
+    return doc;
+  }
+
   function serializeChapter(doc, pageUrl) {
-    const clone = doc.cloneNode(true);
-    clone.querySelectorAll('script, iframe, object, embed, #rer-reader-control, #rer-reading-buffer-badge, #rer-reading-buffer-panel, .asr-reader-control').forEach(el => el.remove());
+    const clone = sanitizeCachedDocument(doc.cloneNode(true));
     const imageUrls = tagReaderImages(clone, pageUrl);
     const bodyHtml = clone.body?.innerHTML || '';
 
@@ -619,10 +648,21 @@
     revokeObjectUrls();
     history.pushState({ rerReadingBuffer: true }, '', record.url);
     document.title = record.title || document.title;
-    document.body.innerHTML = record.bodyHtml;
 
-    // Nettoyage des anciennes versions éventuellement sérialisées dans IndexedDB.
-    document.querySelectorAll('#rer-reader-control, #rer-reading-buffer-badge, #rer-reading-buffer-panel, .asr-reader-control').forEach(el => el.remove());
+    // DOMParser crée un document inerte. On le nettoie aussi ici pour rendre
+    // sûrs les chapitres déjà stockés par les versions antérieures du Reader.
+    const cachedDoc = sanitizeCachedDocument(
+      new DOMParser().parseFromString(record.bodyHtml, 'text/html')
+    );
+    const fragment = document.createDocumentFragment();
+
+    for (const child of [...cachedDoc.body.childNodes]) {
+      fragment.appendChild(document.importNode(child, true));
+    }
+
+    document.body.replaceChildren(fragment);
+
+    // Nettoyage de compatibilité pour d'anciens contrôles sérialisés.
     document.querySelectorAll('.asr-icon').forEach(icon => {
       const oldControl = icon.closest('button');
       if (oldControl) oldControl.remove();
