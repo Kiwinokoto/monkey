@@ -14,8 +14,8 @@ Compatibles avec **Violentmonkey** et **Tampermonkey**.
 
 - le **buffer cache-first de 5 chapitres** sur les lecteurs de novels, mangas, manhua, manhwa, webtoons et comics ;
 - le vrai bouton **Next** du site sert directement le chapitre depuis le cache lorsqu'il est prêt, même si le téléphone pense encore être en ligne ;
-- l'**auto-scroll uniquement** sur les lecteurs manga/manhua/manhwa/webtoon/comics ;
-- aucun auto-scroll sur les novels.
+- l'**auto-scroll sur comics et novels**, avec deux profils adaptés : rapide pour les lecteurs d'images, lent et fin pour le texte ;
+- il est **activé par défaut sur les comics** et **désactivé par défaut sur les novels**, puis configurable site par site dans le panneau Reader.
 
 Il remplace donc, pour cet usage, l'installation simultanée de `RER Reading Buffer` + `Auto Scroll Comics`.
 
@@ -56,10 +56,13 @@ C'est le script tout-en-un destiné à la lecture sur ordinateur et mobile :
 - sur un novel, le contrôleur disparaît quand le buffer n'a plus rien à signaler ; en cas de problème il reste visible ;
 - la vitesse n'est affichée que pendant son réglage, puis le contrôle redevient compact ;
 - auto-scroll comics : **-1000 à 1000 px/s**, pas de **50 px/s** ;
+- auto-scroll novels : **-300 à 100 px/s**, pas de **10 px/s**, vitesse initiale **40 px/s** ;
+- l'activation de l'auto-scroll est mémorisée **par site et par mode** ;
 - pendant l'auto-scroll, le contrôle devient presque transparent après un court délai ;
 - toucher ou cliquer ailleurs dans la page arrête l'auto-scroll sans bloquer l'action normale du site ;
 - le contrôle est déplaçable et sa position est mémorisée **par site et par mode de lecture** : un comic et un novel peuvent donc avoir des positions différentes ;
 - l'apparence est générée à partir d'une seule couleur choisie : surface en verre translucide, reflet, bordure dérivée plus sombre et texte noir ou blanc sélectionné automatiquement selon le contraste ;
+- l'opacité et la taille sont réglées par sliders ; la taille est continue de **36 à 68 px** plutôt que limitée à trois presets ;
 - sur mobile : tap = play/pause sur comics, swipe vertical = vitesse, appui long puis glisser = déplacement, appui long immobile puis relâcher = réglages ;
 - sur ordinateur : clic = play/pause, molette/flèches = vitesse, glisser = déplacement, clic droit = réglages ;
 - le panneau se ferme aussi en cliquant ou touchant en dehors.
@@ -105,12 +108,15 @@ Version standalone du buffer. Utile si l'on ne veut **aucun auto-scroll**.
 | Ralentir | `Flèche bas` ou molette vers le bas | Swipe vers le bas en partant du contrôle |
 | Déplacer le contrôle | Glisser-déposer | Appui long (~450 ms), puis glisser |
 | Ouvrir les réglages | Clic droit sur le contrôle | Appui long immobile, puis relâcher |
+| Activer / désactiver l'auto-scroll | Switch dans le panneau Reader | Switch dans le panneau Reader |
 | Fermer les réglages | `×`, `Échap` ou clic ailleurs | `×` ou tap ailleurs |
 | Reprendre la main pendant l'auto-scroll | Cliquer ailleurs dans la page | Toucher / swiper ailleurs dans la page |
 
 Le geste tactile doit commencer sur le contrôle, mais le doigt peut ensuite sortir largement de sa surface grâce au *pointer capture*. La vitesse apparaît uniquement pendant le réglage.
 
 Le contrôleur utilise un thème « verre » dérivé automatiquement de la couleur choisie. Le Reader calcule la bordure et la couleur du texte pour conserver un contraste lisible. La position est enregistrée séparément par site et par mode de lecture.
+
+Le panneau Reader contient aussi le switch d'auto-scroll. Le profil **comics** utilise de grands pas et une large plage de vitesses ; le profil **novels** utilise des pas de 10 px/s et une plage plus lente.
 
 La purge manuelle du cache n'est pas exposée dans l'interface normale : le buffer se gère automatiquement.
 
