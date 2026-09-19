@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RER Reader
 // @namespace    kiwinokoto.rer-reader
-// @version      1.4.4
+// @version      1.4.5
 // @description  Reader cache-first avec buffer de 5 chapitres et auto-scroll adaptatif comics/novels sur desktop et mobile.
 // @author       Kevin + ChatGPT
 // @homepageURL  https://github.com/Kiwinokoto/monkey
@@ -1997,6 +1997,14 @@
   let rafId = null;
   let lastTimestamp = null;
   let scrollTargetY = null;
+  let scrollTargetX = 0;
+  let maximumScrollYCache = null;
+  let maximumScrollYDirty = true;
+  let lastMaximumScrollRefresh = 0;
+  let lastPositionSyncTimestamp = 0;
+
+  const MAX_SCROLL_REFRESH_MS = 1000;
+  const POSITION_SYNC_INTERVAL_MS = 250;
 
   const legacySavedSpeed = Number(localStorage.getItem(SPEED_STORAGE_KEY));
   const defaultSpeed = Number.isFinite(legacySavedSpeed)
@@ -2041,18 +2049,43 @@
     return getScrollingElement().scrollTop;
   }
 
-  function getMaximumScrollY() {
-    const scrollingElement = getScrollingElement();
-    return Math.max(0, scrollingElement.scrollHeight - window.innerHeight);
+  function invalidateMaximumScrollY() {
+    maximumScrollYDirty = true;
   }
 
-  function getNearTop() {
-    return getCurrentScrollY() <= 8;
+  function getMaximumScrollY(now = performance.now()) {
+    if (
+      maximumScrollYCache === null ||
+      maximumScrollYDirty ||
+      now - lastMaximumScrollRefresh >= MAX_SCROLL_REFRESH_MS
+    ) {
+      const scrollingElement = getScrollingElement();
+      maximumScrollYCache = Math.max(
+        0,
+        scrollingElement.scrollHeight - window.innerHeight
+      );
+      maximumScrollYDirty = false;
+      lastMaximumScrollRefresh = now;
+    }
+
+    return maximumScrollYCache;
   }
 
-  function getNearBottom() {
-    return getCurrentScrollY() >= getMaximumScrollY() - 8;
+  // Lazy-loaded images and responsive layout can change the scrollable height.
+  // Mark the cache dirty only when geometry changes instead of forcing a
+  // scrollHeight read on every animation frame.
+  if (typeof ResizeObserver === "function") {
+    const scrollSizeObserver = new ResizeObserver(invalidateMaximumScrollY);
+    scrollSizeObserver.observe(document.documentElement);
+    if (document.body) scrollSizeObserver.observe(document.body);
   }
+
+  window.addEventListener("resize", invalidateMaximumScrollY, { passive: true });
+  window.visualViewport?.addEventListener(
+    "resize",
+    invalidateMaximumScrollY,
+    { passive: true }
+  );
 
   function isFullscreen() {
     return Boolean(
@@ -2086,6 +2119,7 @@
     scrolling = false;
     lastTimestamp = null;
     scrollTargetY = null;
+    lastPositionSyncTimestamp = 0;
     document.documentElement.classList.remove("asr-scrolling");
 
     if (rafId !== null) {
@@ -2112,16 +2146,23 @@
     );
     lastTimestamp = timestamp;
 
-    const currentScrollY = getCurrentScrollY();
-
+    // Reconcile occasionally with the browser's actual position, but avoid a
+    // layout-sensitive scrollTop read on every frame.
     if (
       scrollTargetY === null ||
-      Math.abs(currentScrollY - scrollTargetY) > 80
+      timestamp - lastPositionSyncTimestamp >= POSITION_SYNC_INTERVAL_MS
     ) {
-      scrollTargetY = currentScrollY;
+      const currentScrollY = getCurrentScrollY();
+      if (
+        scrollTargetY === null ||
+        Math.abs(currentScrollY - scrollTargetY) > 80
+      ) {
+        scrollTargetY = currentScrollY;
+      }
+      lastPositionSyncTimestamp = timestamp;
     }
 
-    const maximumScrollY = getMaximumScrollY();
+    const maximumScrollY = getMaximumScrollY(timestamp);
 
     scrollTargetY = Math.max(
       0,
@@ -2131,19 +2172,19 @@
       )
     );
 
+    // "instant" is deliberate: the rAF loop is the animator. "auto" could let
+    // a site's CSS scroll-behavior:smooth add a second animation on top.
     window.scrollTo({
       top: scrollTargetY,
-      left: window.scrollX,
-      behavior: "auto",
+      left: scrollTargetX,
+      behavior: "instant",
     });
 
     const reachedBottom =
-      speed > 0 &&
-      (scrollTargetY >= maximumScrollY - 1 || getNearBottom());
+      speed > 0 && scrollTargetY >= maximumScrollY - 1;
 
     const reachedTop =
-      speed < 0 &&
-      (scrollTargetY <= 1 || getNearTop());
+      speed < 0 && scrollTargetY <= 1;
 
     if (reachedBottom || reachedTop) {
       stopScroll();
@@ -2163,6 +2204,10 @@
     scrolling = true;
     lastTimestamp = null;
     scrollTargetY = getCurrentScrollY();
+    scrollTargetX = window.scrollX;
+    lastPositionSyncTimestamp = performance.now();
+    invalidateMaximumScrollY();
+    getMaximumScrollY(lastPositionSyncTimestamp);
 
     if (speed !== 0) {
       document.documentElement.classList.add("asr-scrolling");
@@ -2225,6 +2270,9 @@
         if (rafId === null) {
           lastTimestamp = null;
           scrollTargetY = getCurrentScrollY();
+          scrollTargetX = window.scrollX;
+          lastPositionSyncTimestamp = performance.now();
+          invalidateMaximumScrollY();
           rafId = requestAnimationFrame(scrollStep);
         }
       }
