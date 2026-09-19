@@ -39,7 +39,8 @@ C'est le script tout-en-un destiné à la lecture mobile :
 - protection contre les liens « suivant » en boucle ;
 - auto-scroll comics : **-1000 à 1000 px/s**, pas de **50 px/s** ;
 - sur un novel, seul le buffer démarre ;
-- interface minimale : petite pastille du buffer + bouton d'auto-scroll uniquement lorsqu'il est utile.
+- interface minimale : petite pastille du buffer + bouton d'auto-scroll uniquement lorsqu'il est utile ;
+- contrôles tactiles : tap = play/pause, swipe vertical sur le bouton = vitesse, appui long puis glisser = déplacement.
 
 Le buffer possède également un garde anti-double-exécution : si le script standalone `RER Reading Buffer` est encore activé pendant une migration, un seul des deux buffers démarre.
 
@@ -73,15 +74,18 @@ Fichier : `RER-Reading-Buffer.user.js`
 
 Version standalone du buffer. Utile si l'on ne veut **aucun auto-scroll**.
 
-## Commandes des Auto Scroll
+## Contrôles des Auto Scroll
 
-| Action | Commande |
-| --- | --- |
-| Activer / désactiver | Clic sur le bouton ou `Espace` |
-| Augmenter la vitesse | `Flèche haut` |
-| Diminuer la vitesse | `Flèche bas` |
-| Modifier la vitesse | Molette sur le bouton |
-| Déplacer le bouton | Glisser-déposer |
+| Action | Ordinateur | Mobile / tactile |
+| --- | --- | --- |
+| Activer / désactiver | Clic sur le bouton ou `Espace` | Tap sur le bouton |
+| Accélérer | `Flèche haut` ou molette vers le haut sur le bouton | Swipe vers le haut en partant du bouton |
+| Ralentir | `Flèche bas` ou molette vers le bas sur le bouton | Swipe vers le bas en partant du bouton |
+| Déplacer le bouton | Glisser-déposer | Appui long (~450 ms), puis glisser |
+
+Sur mobile, le geste doit **commencer sur le bouton**, mais le doigt peut ensuite sortir largement de sa surface : le script utilise le *pointer capture* jusqu'au relâchement. Le reste de la page conserve ses gestes habituels.
+
+Pour la vitesse, un premier mouvement vertical d'environ **12 px** déclenche un cran, puis environ **32 px supplémentaires** ajoutent un cran. Un cran vaut **50 px/s** pour le scroller comics et **10 px/s** pour le scroller novels.
 
 Les raccourcis clavier sont ignorés lorsqu'un champ de saisie ou un élément interactif est utilisé.
 
