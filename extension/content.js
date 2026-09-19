@@ -121,8 +121,8 @@
     speed: Number(GM_getValue(SCROLL_SPEED_KEY, SCROLL_DEFAULT_SPEED)) || SCROLL_DEFAULT_SPEED,
     mode: READER_MODE,
     minSpeed: READER_MODE === 'novel' ? -300 : -1000,
-    maxSpeed: READER_MODE === 'novel' ? 100 : 1000,
-    speedStep: READER_MODE === 'novel' ? 10 : 50,
+    maxSpeed: READER_MODE === 'novel' ? 300 : 1000,
+    speedStep: READER_MODE === 'novel' ? 5 : 50,
     speedVisibleUntil: 0,
     ghosted: false,
   };
@@ -1026,7 +1026,7 @@
       )
     );
     control.setAttribute('aria-label', description);
-    control.title = description;
+    control.removeAttribute('title');
 
     updatePanelStatus();
   }
@@ -1053,8 +1053,11 @@
     const scrollMeta = panel.querySelector('.rer-scroll-meta');
     if (scrollMeta) {
       const modeLabel = scrollState.mode === 'novel' ? 'Profil novel' : 'Profil comics';
+      const stepLabel = scrollState.mode === 'novel'
+        ? 'pas 5/10'
+        : 'pas ' + scrollState.speedStep;
       scrollMeta.textContent = scrollState.available
-        ? `${modeLabel} · ${scrollState.speed} px/s · pas ${scrollState.speedStep}`
+        ? modeLabel + ' · ' + scrollState.speed + ' px/s · ' + stepLabel
         : 'Auto-scroll indisponible sur cette page';
     }
 
@@ -2013,8 +2016,8 @@
   const ENABLED_STORAGE_KEY = `rerReaderScrollEnabled:${location.origin}:${MODE}`;
   const DEFAULT_ENABLED = MODE === "comic";
   const MIN_SPEED = MODE === "novel" ? -300 : -1000;
-  const MAX_SPEED = MODE === "novel" ? 100 : 1000;
-  const SPEED_STEP = MODE === "novel" ? 10 : 50;
+  const MAX_SPEED = MODE === "novel" ? 300 : 1000;
+  const SPEED_STEP = MODE === "novel" ? 5 : 50;
   const DEFAULT_SPEED = MODE === "novel" ? 40 : 250;
 
   let enabled = Boolean(
@@ -2209,12 +2212,32 @@
     }
   }
 
-  function changeSpeed(delta) {
+  function speedStepForDirection(currentSpeed, direction) {
+    if (MODE !== "novel") return SPEED_STEP;
+
+    // Novel : réglage fin autour de zéro, puis grands pas pour se déplacer vite.
+    // Crans : … -40, -30, -20, -15, -10, -5, 0, 5, 10, 15, 20, 30, 40 …
+    if (direction > 0) {
+      return currentSpeed >= 20 || currentSpeed < -20 ? 10 : 5;
+    }
+
+    return currentSpeed > 20 || currentSpeed <= -20 ? 10 : 5;
+  }
+
+  function changeSpeedSteps(steps) {
     if (!enabled) return;
-    speed = Math.max(
-      MIN_SPEED,
-      Math.min(MAX_SPEED, speed + delta)
-    );
+
+    const wholeSteps = Math.trunc(steps);
+    if (wholeSteps === 0) return;
+
+    const direction = Math.sign(wholeSteps);
+    for (let i = 0; i < Math.abs(wholeSteps); i += 1) {
+      const step = speedStepForDirection(speed, direction);
+      speed = Math.max(
+        MIN_SPEED,
+        Math.min(MAX_SPEED, speed + direction * step)
+      );
+    }
 
     saveSpeed();
 
@@ -2286,7 +2309,7 @@
   document.addEventListener("rer-reader-speed-steps", event => {
     const steps = Number(event.detail?.steps);
     if (!Number.isFinite(steps) || steps === 0) return;
-    changeSpeed(steps * SPEED_STEP);
+    changeSpeedSteps(steps);
   });
 
   // Toute interaction avec la page rend immédiatement la main à l'utilisateur.
@@ -2327,13 +2350,13 @@
 
     if (event.key === "ArrowUp") {
       event.preventDefault();
-      changeSpeed(SPEED_STEP);
+      changeSpeedSteps(1);
       return;
     }
 
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      changeSpeed(-SPEED_STEP);
+      changeSpeedSteps(-1);
     }
   });
 
