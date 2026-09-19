@@ -20,15 +20,23 @@ Firefox Android reste aujourd'hui le chemin mobile le mieux testé du projet, ma
 Principe : **un seul fichier à installer, plusieurs fichiers à développer**.
 
 - `src/userscript.meta.js` : métadonnées userscript ;
-- `src/reader-buffer.js` : buffer, cache, restauration et UI principale ;
-- `src/auto-scroll.js` : moteur d'auto-scroll ;
-- `scripts/build_userscript.py` : assemble les sources ;
+- `src/reader-buffer.ts` : buffer, cache, restauration et UI principale ;
+- `src/auto-scroll.ts` : moteur d'auto-scroll ;
+- `scripts/build_userscript.py` : transpile les sources TypeScript avec esbuild et assemble le userscript ;
 - `RER-Reader.user.js` : artefact généré et URL d'installation stable ;
 - `extension/` : packaging WebExtension Firefox + Chromium ;
 - `tests/` : régressions légères exécutées en CI ;
 - `archive/legacy-userscripts/` : anciens scripts séparés, conservés uniquement pour référence.
 
-La migration des sources vers **TypeScript est validée**. Elle doit rester progressive et conserver le principe « plusieurs sources de développement -> un seul userscript généré ». Un bundler léger (esbuild) et un type-check TypeScript sont préférables à un framework UI. La migration ne doit pas changer l'URL d'installation ni réduire la compatibilité Firefox/Chromium.
+La migration des sources vers **TypeScript est effectuée** : les deux modules de développement sont en `.ts`, vérifiés par `tsc --noEmit`, puis transpiles par esbuild avant assemblage. Aucun framework UI. Le userscript généré conserve son URL d’installation et les builds Firefox/Chromium restent dérivés du même artefact canonique.
+
+
+## État de reprise
+
+- TypeScript : migration structurelle terminée ; `npm run typecheck` doit rester vert avant tout ajout V3 substantiel.
+- Build : `npm run build` régénère userscript + extensions ; ne pas éditer les artefacts générés à la main.
+- Tests : les régressions statiques lisent désormais les sources TypeScript ; la CI vérifie séparément que les artefacts générés sont à jour.
+- Prochaine priorité : **reprise de lecture robuste**, puis Screen Wake Lock.
 
 ## Décisions UX du panneau
 

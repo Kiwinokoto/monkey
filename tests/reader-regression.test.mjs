@@ -2,10 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-const source = fs.readFileSync(
-  new URL("../RER-Reader.user.js", import.meta.url),
-  "utf8"
-);
+const source = ["reader-buffer.ts", "auto-scroll.ts"]
+  .map(name => fs.readFileSync(new URL(`../src/${name}`, import.meta.url), "utf8"))
+  .join("\n");
 
 test("current Reader preferences are scoped by site, not by mode", () => {
   for (const line of [

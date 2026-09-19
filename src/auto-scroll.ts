@@ -1,3 +1,6 @@
+declare function GM_getValue<T>(key: string, fallbackValue: T): T;
+declare function GM_setValue<T>(key: string, value: T): void;
+
 // -----------------------------------------------------------------------------
 // Module 2 — Auto-scroll engine (comics + novels)
 // -----------------------------------------------------------------------------
@@ -165,7 +168,7 @@
   function isFullscreen() {
     return Boolean(
       document.fullscreenElement ||
-      document.webkitFullscreenElement
+      (document as Document & { webkitFullscreenElement?: Element }).webkitFullscreenElement
     );
   }
 
@@ -177,8 +180,9 @@
     try {
       if (element.requestFullscreen) {
         await element.requestFullscreen();
-      } else if (element.webkitRequestFullscreen) {
-        element.webkitRequestFullscreen();
+      } else {
+        const webkitElement = element as HTMLElement & { webkitRequestFullscreen?: () => void };
+        webkitElement.webkitRequestFullscreen?.();
       }
     } catch {
       // Le navigateur peut refuser le plein écran ; le scroll reste utilisable.
@@ -388,7 +392,7 @@
   });
 
   document.addEventListener("rer-reader-scroll-enabled", event => {
-    enabled = Boolean(event.detail?.enabled);
+    enabled = Boolean((event as CustomEvent).detail?.enabled);
     GM_setValue(ENABLED_STORAGE_KEY, enabled);
 
     if (!enabled && scrolling) {
@@ -400,7 +404,7 @@
   });
 
   document.addEventListener("rer-reader-speed-steps", event => {
-    const steps = Number(event.detail?.steps);
+    const steps = Number((event as CustomEvent).detail?.steps);
     if (!Number.isFinite(steps) || steps === 0) return;
     changeSpeedSteps(steps);
   });

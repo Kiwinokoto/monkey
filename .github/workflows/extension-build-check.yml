@@ -32,6 +32,12 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Install development toolchain
+        run: npm ci --ignore-scripts
+
+      - name: Type-check Reader sources
+        run: npm run typecheck
+
       - name: Build canonical userscript
         run: python scripts/build_userscript.py
 

@@ -1,3 +1,6 @@
+declare function GM_getValue<T>(key: string, fallbackValue: T): T;
+declare function GM_setValue<T>(key: string, value: T): void;
+
 // -----------------------------------------------------------------------------
 // Module 1 — Reading buffer
 // -----------------------------------------------------------------------------
@@ -28,7 +31,7 @@
   const NEXT_TEXT_RE = /^(?:next(?:\s+chapter)?|chapter\s+next|chapitre\s+suivant|suivant|next\s*[›»→]?|[›»→])$/i;
   const PREV_TEXT_RE = /^(?:prev(?:ious)?(?:\s+chapter)?|chapter\s+prev(?:ious)?|chapitre\s+pr[eé]c[eé]dent|pr[eé]c[eé]dent|[‹«←])$/i;
 
-  let dbPromise;
+  let dbPromise: Promise<IDBDatabase> | undefined;
   let prefetchRunning = false;
   let objectUrls = [];
 
@@ -180,7 +183,7 @@
     return dbPromise;
   }
 
-  async function dbGet(storeName, key) {
+  async function dbGet(storeName: string, key: IDBValidKey): Promise<any> {
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(storeName, 'readonly');
@@ -190,9 +193,9 @@
     });
   }
 
-  async function dbPut(storeName, value) {
+  async function dbPut(storeName: string, value: any): Promise<void> {
     const db = await openDB();
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const tx = db.transaction(storeName, 'readwrite');
       tx.objectStore(storeName).put(value);
       tx.oncomplete = () => resolve();
@@ -201,9 +204,9 @@
     });
   }
 
-  async function dbDelete(storeName, key) {
+  async function dbDelete(storeName: string, key: IDBValidKey): Promise<void> {
     const db = await openDB();
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const tx = db.transaction(storeName, 'readwrite');
       tx.objectStore(storeName).delete(key);
       tx.oncomplete = () => resolve();
@@ -211,7 +214,7 @@
     });
   }
 
-  async function dbAll(storeName) {
+  async function dbAll(storeName: string): Promise<any[]> {
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(storeName, 'readonly');
@@ -392,7 +395,7 @@
 
   async function hydrateCachedImages() {
     revokeObjectUrls();
-    const imgs = [...document.querySelectorAll('img[data-rer-src]')];
+    const imgs = [...document.querySelectorAll<HTMLImageElement>('img[data-rer-src]')];
 
     for (const img of imgs) {
       const url = img.getAttribute('data-rer-src');
@@ -2178,7 +2181,7 @@
   }
 
   document.addEventListener('rer-reader-scroll-state', event => {
-    const detail = event.detail || {};
+    const detail = (event as CustomEvent).detail || {};
     const wasScrolling = scrollState.scrolling;
 
     if (typeof detail.available === 'boolean') {
