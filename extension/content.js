@@ -44,6 +44,10 @@
     }
   }
 
+// GENERATED FILE — do not edit directly.
+// Sources: src/userscript.meta.js + src/reader-buffer.js + src/auto-scroll.js
+// Build: python scripts/build_userscript.py
+
 // -----------------------------------------------------------------------------
 // Module 1 — Reading buffer
 // -----------------------------------------------------------------------------
@@ -2342,7 +2346,6 @@
 
   void boot();
 })();
-
 
 // -----------------------------------------------------------------------------
 // Module 2 — Auto-scroll engine (comics + novels)
