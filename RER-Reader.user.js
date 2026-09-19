@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RER Reader
 // @namespace    kiwinokoto.rer-reader
-// @version      1.4.6
+// @version      1.4.7
 // @description  Reader cache-first avec buffer de 5 chapitres et auto-scroll adaptatif comics/novels sur desktop et mobile.
 // @author       Kevin + ChatGPT
 // @homepageURL  https://github.com/Kiwinokoto/monkey
@@ -79,6 +79,7 @@
   let controlLabel;
   let panel;
   let sideRails;
+  let panelClosedByControlPointerId = null;
   let bufferFadeTimerId = null;
   let bufferShownAt = 0;
   let bufferVisible = true;
@@ -849,7 +850,12 @@
 
     const appearance = getReaderAppearance();
     const accent = hexToRgb(appearance.color);
-    const surface = mixRgb(accent, { r: 255, g: 255, b: 255 }, 0.62);
+    const white = { r: 255, g: 255, b: 255 };
+    const surface = mixRgb(accent, white, 0.68);
+    const buttonLight = mixRgb(accent, white, 0.84);
+    const buttonMid = mixRgb(accent, white, 0.64);
+    const buttonDeep = mixRgb(accent, white, 0.46);
+    const buttonBorder = mixRgb(accent, white, 0.24);
     const border = mixRgb(accent, { r: 0, g: 0, b: 0 }, 0.40);
     const deep = mixRgb(accent, { r: 0, g: 0, b: 0 }, 0.62);
     const textColor = bestTextColor(surface);
@@ -859,11 +865,11 @@
     control.style.setProperty('--rr-size', `${sizePx}px`);
     control.style.setProperty('--rr-idle-opacity', String(appearance.opacity));
     control.style.setProperty('--rr-text', textColor);
-    control.style.setProperty('--rr-border', rgbaCss(border, 0.88));
-    control.style.setProperty('--rr-shadow', rgbaCss(deep, 0.28));
+    control.style.setProperty('--rr-border', rgbaCss(buttonBorder, 0.84));
+    control.style.setProperty('--rr-shadow', rgbaCss(accent, 0.20));
     control.style.setProperty(
       '--rr-background',
-      `linear-gradient(145deg, rgba(255,255,255,.78) 0%, ${rgbaCss(surface, 0.72)} 42%, ${rgbaCss(accent, 0.54)} 100%)`
+      `linear-gradient(145deg, rgba(255,255,255,.90) 0%, ${rgbaCss(buttonLight, 0.96)} 34%, ${rgbaCss(buttonMid, 0.92)} 70%, ${rgbaCss(buttonDeep, 0.88)} 100%)`
     );
 
     panel.style.setProperty('--rr-panel-accent', rgbCss(accent));
@@ -873,7 +879,9 @@
     if (sideRails) {
       const railT = appearance.rails / 100;
       const railWidthVw = 3 + 15 * railT;
-      const railAlpha = 0.23 * Math.pow(railT, 1.2);
+      const railAlpha = 0.34 * Math.pow(railT, 1.12);
+      const waveAlpha = Math.min(0.46, railAlpha * 1.28);
+      const sparkAlpha = Math.min(0.58, railAlpha * 1.52);
 
       sideRails.classList.toggle('rr-off', appearance.rails <= 0);
       sideRails.style.setProperty(
@@ -887,8 +895,10 @@
       );
       sideRails.style.setProperty(
         '--rr-rail-tail',
-        rgbaCss(accent, railAlpha * 0.12)
+        rgbaCss(accent, railAlpha * 0.10)
       );
+      sideRails.style.setProperty('--rr-rail-wave', rgbaCss(accent, waveAlpha));
+      sideRails.style.setProperty('--rr-rail-spark', rgbaCss(accent, sparkAlpha));
     }
 
     if (hasCustomPosition) {
@@ -1213,7 +1223,7 @@
     } else if (state.mode === 'pending' && event.type !== 'pointercancel') {
       if (scrollState.available && scrollState.enabled) {
         document.dispatchEvent(new CustomEvent('rer-reader-toggle-scroll'));
-      } else {
+      } else if (!state.panelWasClosedOnPointerDown) {
         openReaderPanel();
       }
     }
@@ -1258,6 +1268,33 @@
 
     const rightRail = document.createElement('span');
     rightRail.className = 'rr-side-rail rr-side-rail-right';
+
+    const svgNamespace = 'http://www.w3.org/2000/svg';
+
+    for (const rail of [leftRail, rightRail]) {
+      const waveSvg = document.createElementNS(svgNamespace, 'svg');
+      waveSvg.setAttribute('class', 'rr-side-rail-wave');
+      waveSvg.setAttribute('viewBox', '0 0 100 1000');
+      waveSvg.setAttribute('preserveAspectRatio', 'none');
+      waveSvg.setAttribute('aria-hidden', 'true');
+
+      const primaryWave = document.createElementNS(svgNamespace, 'path');
+      primaryWave.setAttribute(
+        'd',
+        'M 18 -20 C 42 72, 4 154, 28 246 S 8 410, 31 510 S 5 675, 27 782 S 8 930, 30 1020'
+      );
+      primaryWave.setAttribute('class', 'rr-wave-primary');
+
+      const secondaryWave = document.createElementNS(svgNamespace, 'path');
+      secondaryWave.setAttribute(
+        'd',
+        'M 30 -30 C 52 88, 16 174, 39 280 S 18 448, 42 558 S 15 724, 39 842 S 18 950, 42 1030'
+      );
+      secondaryWave.setAttribute('class', 'rr-wave-secondary');
+
+      waveSvg.append(primaryWave, secondaryWave);
+      rail.append(waveSvg);
+    }
 
     sideRails.append(leftRail, rightRail);
 
@@ -1495,6 +1532,7 @@
       controlGesture = {
         pointerId: event.pointerId,
         pointerType: event.pointerType,
+        panelWasClosedOnPointerDown: panelClosedByControlPointerId === event.pointerId,
         startX: event.clientX,
         startY: event.clientY,
         originLeft: rect.left,
@@ -1504,6 +1542,7 @@
         longPressTimerId: null,
       };
 
+      panelClosedByControlPointerId = null;
       control.setPointerCapture(event.pointerId);
 
       if (event.pointerType !== 'mouse') {
@@ -1640,24 +1679,65 @@
 
       #rer-reading-rails .rr-side-rail-left {
         left: 0;
-        background: linear-gradient(
-          90deg,
-          var(--rr-rail-edge, rgba(73,198,214,.08)) 0%,
-          var(--rr-rail-mid, rgba(73,198,214,.04)) 34%,
-          var(--rr-rail-tail, rgba(73,198,214,.01)) 72%,
-          transparent 100%
-        );
+        background:
+          radial-gradient(circle at 18% 9%, var(--rr-rail-spark, rgba(73,198,214,.12)) 0 1.4px, transparent 2.3px),
+          radial-gradient(circle at 27% 28%, var(--rr-rail-spark, rgba(73,198,214,.12)) 0 1.2px, transparent 2.1px),
+          radial-gradient(circle at 15% 58%, var(--rr-rail-spark, rgba(73,198,214,.12)) 0 1.5px, transparent 2.4px),
+          radial-gradient(circle at 25% 84%, var(--rr-rail-spark, rgba(73,198,214,.12)) 0 1.3px, transparent 2.2px),
+          linear-gradient(
+            90deg,
+            var(--rr-rail-edge, rgba(73,198,214,.11)) 0%,
+            var(--rr-rail-mid, rgba(73,198,214,.05)) 32%,
+            var(--rr-rail-tail, rgba(73,198,214,.012)) 72%,
+            transparent 100%
+          );
       }
 
       #rer-reading-rails .rr-side-rail-right {
         right: 0;
-        background: linear-gradient(
-          270deg,
-          var(--rr-rail-edge, rgba(73,198,214,.08)) 0%,
-          var(--rr-rail-mid, rgba(73,198,214,.04)) 34%,
-          var(--rr-rail-tail, rgba(73,198,214,.01)) 72%,
-          transparent 100%
-        );
+        background:
+          radial-gradient(circle at 82% 9%, var(--rr-rail-spark, rgba(73,198,214,.12)) 0 1.4px, transparent 2.3px),
+          radial-gradient(circle at 73% 28%, var(--rr-rail-spark, rgba(73,198,214,.12)) 0 1.2px, transparent 2.1px),
+          radial-gradient(circle at 85% 58%, var(--rr-rail-spark, rgba(73,198,214,.12)) 0 1.5px, transparent 2.4px),
+          radial-gradient(circle at 75% 84%, var(--rr-rail-spark, rgba(73,198,214,.12)) 0 1.3px, transparent 2.2px),
+          linear-gradient(
+            270deg,
+            var(--rr-rail-edge, rgba(73,198,214,.11)) 0%,
+            var(--rr-rail-mid, rgba(73,198,214,.05)) 32%,
+            var(--rr-rail-tail, rgba(73,198,214,.012)) 72%,
+            transparent 100%
+          );
+      }
+
+      #rer-reading-rails .rr-side-rail-wave {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        overflow: visible;
+        color: var(--rr-rail-wave, rgba(73,198,214,.16));
+        pointer-events: none;
+      }
+
+      #rer-reading-rails .rr-side-rail-right .rr-side-rail-wave {
+        transform: scaleX(-1);
+        transform-origin: center;
+      }
+
+      #rer-reading-rails .rr-side-rail-wave path {
+        fill: none;
+        stroke: currentColor;
+        vector-effect: non-scaling-stroke;
+      }
+
+      #rer-reading-rails .rr-wave-primary {
+        stroke-width: 1.25;
+        opacity: .88;
+      }
+
+      #rer-reading-rails .rr-wave-secondary {
+        stroke-width: .8;
+        opacity: .34;
       }
 
       #rer-reader-control {
@@ -2021,9 +2101,12 @@
 
   document.addEventListener('pointerdown', event => {
     if (!panel || panel.hidden) return;
-    if (event.target instanceof Node && (panel.contains(event.target) || control?.contains(event.target))) {
-      return;
+    if (event.target instanceof Node && panel.contains(event.target)) return;
+
+    if (event.target instanceof Node && control?.contains(event.target)) {
+      panelClosedByControlPointerId = event.pointerId;
     }
+
     closeReaderPanel();
   }, true);
 
