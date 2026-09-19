@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RER Reader
 // @namespace    kiwinokoto.rer-reader
-// @version      1.4.8
+// @version      1.4.9
 // @description  Reader cache-first avec buffer de 5 chapitres et auto-scroll adaptatif comics/novels sur desktop et mobile.
 // @author       Kevin + ChatGPT
 // @homepageURL  https://github.com/Kiwinokoto/monkey
@@ -1053,10 +1053,62 @@
     }, waitMs);
   }
 
-  function setControlContent(iconText, labelText, expanded) {
+  function createMediaIcon(kind) {
+    const namespace = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(namespace, 'svg');
+    svg.setAttribute('class', `rr-media-icon rr-media-icon-${kind}`);
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+
+    if (kind === 'play') {
+      const path = document.createElementNS(namespace, 'path');
+      path.setAttribute(
+        'd',
+        'M9.15 6.55 C9.15 6.02 9.72 5.69 10.18 5.96 L18.02 10.62 C18.94 11.17 18.94 12.49 18.02 13.04 L10.18 17.70 C9.72 17.97 9.15 17.64 9.15 17.11 Z'
+      );
+      svg.append(path);
+      return svg;
+    }
+
+    if (kind === 'pause') {
+      const leftBar = document.createElementNS(namespace, 'rect');
+      leftBar.setAttribute('x', '7.35');
+      leftBar.setAttribute('y', '6.15');
+      leftBar.setAttribute('width', '3.35');
+      leftBar.setAttribute('height', '11.70');
+      leftBar.setAttribute('rx', '1.15');
+
+      const rightBar = document.createElementNS(namespace, 'rect');
+      rightBar.setAttribute('x', '13.30');
+      rightBar.setAttribute('y', '6.15');
+      rightBar.setAttribute('width', '3.35');
+      rightBar.setAttribute('height', '11.70');
+      rightBar.setAttribute('rx', '1.15');
+
+      svg.append(leftBar, rightBar);
+      return svg;
+    }
+
+    return null;
+  }
+
+  function setControlContent(iconValue, labelText, expanded) {
     if (!control || !controlIcon || !controlLabel) return;
 
-    controlIcon.textContent = iconText;
+    controlIcon.replaceChildren();
+
+    const mediaIcon =
+      iconValue === 'play' || iconValue === 'pause'
+        ? createMediaIcon(iconValue)
+        : null;
+
+    if (mediaIcon) {
+      controlIcon.append(mediaIcon);
+    } else {
+      controlIcon.textContent = iconValue;
+    }
+
     controlLabel.textContent = labelText || '';
     control.classList.toggle('rr-expanded', Boolean(expanded));
     control.classList.toggle('rr-compact', !expanded);
@@ -1084,7 +1136,7 @@
       setControlContent('📚', `${status.cachedAhead}/${LOOKAHEAD}`, true);
       description = `Buffer ${status.cachedAhead} sur ${LOOKAHEAD}. ${status.message}`;
     } else if (scrollState.available && scrollState.enabled) {
-      setControlContent(scrollState.scrolling ? '❚❚' : '▶', '', false);
+      setControlContent(scrollState.scrolling ? 'pause' : 'play', '', false);
       description = scrollState.scrolling
         ? 'Mettre en pause le défilement automatique'
         : 'Démarrer le défilement automatique';
@@ -1937,6 +1989,25 @@
         justify-content: center;
         min-width: 1.15em;
         line-height: 1;
+      }
+
+      #rer-reader-control .rr-media-icon {
+        display: block;
+        width: 19px;
+        height: 19px;
+        overflow: visible;
+        fill: currentColor;
+        flex: 0 0 auto;
+      }
+
+      #rer-reader-control .rr-media-icon-play {
+        width: 19px;
+        height: 19px;
+      }
+
+      #rer-reader-control .rr-media-icon-pause {
+        width: 18px;
+        height: 18px;
       }
 
       #rer-reader-control .rr-label {

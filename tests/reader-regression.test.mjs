@@ -68,6 +68,16 @@ test("clicking the Reader button closes an open panel instead of exempting it", 
   ));
 });
 
+test("play and pause use dedicated inline SVG icons, not font glyphs", () => {
+  assert.ok(source.includes("function createMediaIcon(kind)"));
+  assert.ok(source.includes("rr-media-icon-play"));
+  assert.ok(source.includes("rr-media-icon-pause"));
+  assert.ok(source.includes("setControlContent(scrollState.scrolling ? 'pause' : 'play'"));
+  assert.ok(!source.includes("scrollState.scrolling ? '❚❚' : '▶'"));
+  assert.ok(source.includes("leftBar.setAttribute('rx', '1.15')"));
+  assert.ok(source.includes("rightBar.setAttribute('rx', '1.15')"));
+});
+
 test("smooth-scroll regressions stay guarded", () => {
   assert.ok(source.includes('behavior: "instant"'));
   assert.ok(source.includes("new ResizeObserver(invalidateMaximumScrollY)"));
