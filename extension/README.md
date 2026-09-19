@@ -1,28 +1,32 @@
-# RER Reader — Firefox extension
+# RER Reader — browser extension
 
-This folder contains the browser-extension packaging of **RER Reader**.
+This folder packages **RER Reader** as a Firefox/Chrome WebExtension.
 
-The canonical source remains `../RER-Reader.user.js`. The extension's
-`content.js` is generated from it, so the userscript and extension do not
-need to be maintained as two separate implementations.
-
-## Why an extension?
-
-For end users, a published extension removes the extra userscript-manager step:
-install RER Reader once, then use it directly on supported reading sites.
-
-For development, the userscript remains the fastest way to iterate.
+The canonical implementation remains `../RER-Reader.user.js`. The browser
+packages are generated from it; the Reader is not maintained as separate
+Firefox, Chrome, and userscript codebases.
 
 ## Architecture
 
-- `manifest.json` — Manifest V3 extension metadata.
-- `content.js` — generated content script; **do not edit by hand**.
-- `build_extension.py` — rebuilds `content.js` and synchronizes the
-  extension version with the userscript `@version`.
+```text
+../RER-Reader.user.js         canonical Reader logic
+          │
+          ▼
+build_extension.py
+          │
+          ├── manifest.base.json
+          ├── manifest.firefox.json
+          └── manifest.chrome.json
+          │
+          ├── manifest.json            Firefox dev convenience build
+          ├── content.js               generated adapter + Reader
+          ├── dist/firefox/            generated Firefox package tree
+          ├── dist/chrome/             generated Chrome package tree
+          └── packages/*.zip           generated store/test archives
+```
 
-The extension adapter maps the userscript's synchronous
-`GM_getValue` / `GM_setValue` calls to `browser.storage.local`.
-The page/chapter cache still uses the Reader's IndexedDB logic.
+`manifest.base.json` contains the cross-browser settings. Browser-specific
+files are small overlays, so Firefox and Chrome cannot silently drift apart.
 
 ## Build
 
@@ -32,31 +36,79 @@ From the repository root:
 python extension/build_extension.py
 ```
 
-No npm dependencies are required.
+No Python or npm package is required for the build itself.
 
-## Test on Firefox desktop
+The build creates:
 
-1. Open `about:debugging#/runtime/this-firefox`.
-2. Click **Load Temporary Add-on…**.
-3. Select `extension/manifest.json`.
-4. Open a supported comic or novel site.
+- `extension/packages/rer-reader-firefox-<version>.zip`
+- `extension/packages/rer-reader-chrome-<version>.zip`
 
-Temporary extensions disappear when Firefox is restarted.
+The package directories and ZIPs are generated artifacts and are ignored by Git.
 
-## Firefox Android
+## Firefox desktop development
 
-Firefox for Android supports extensions, but a normal user-facing installation
-should be distributed as a signed add-on, ideally through Mozilla Add-ons
-(AMO). Until RER Reader is published there, the userscript + Violentmonkey
-route remains the simplest Android installation.
+1. Download/clone the repository and run the build if needed.
+2. Open `about:debugging#/runtime/this-firefox`.
+3. Click **Load Temporary Add-on…**.
+4. Select `extension/manifest.json`.
+5. Open a supported comic or novel site.
 
-## Chromium desktop
+Temporary add-ons are removed when Firefox restarts. A signed Firefox package
+is required for a normal persistent installation.
 
-The manifest and storage adapter are intentionally close to standard Manifest
-V3 and may also work in Chromium-based desktop browsers through **Load
-unpacked**, but Firefox is the primary target for this prototype.
+## Firefox Android / AMO
+
+The Firefox manifest explicitly declares Android support with
+`gecko_android: {}`.
+
+For Mozilla Add-ons (AMO), it also declares:
+
+```json
+"data_collection_permissions": {
+  "required": ["none"]
+}
+```
+
+RER Reader does not collect or transmit analytics, telemetry, browsing
+history, or personal data to the developer. See `../PRIVACY.md`.
+
+Before public release, the Firefox ZIP can be linted with:
+
+```bash
+npx web-ext@10 lint --source-dir extension/dist/firefox --warnings-as-errors
+```
+
+The CI runs this check automatically.
+
+## Chrome / Chromium desktop
+
+After building:
+
+1. Open `chrome://extensions`.
+2. Enable **Developer mode**.
+3. Click **Load unpacked**.
+4. Select `extension/dist/chrome/`.
+
+Chrome Android does not provide the normal desktop extension installation
+model; the Chrome package is intended for desktop Chromium-based browsers.
+
+## Privacy and permissions
+
+The extension currently injects on HTTP/HTTPS pages and immediately no-ops on
+pages that do not look like supported readers. This keeps the same universal
+reader detection as the userscript, at the cost of a broad site-access
+permission at installation.
+
+Settings stay in `browser.storage.local`. Chapter/page cache data stays in
+browser-local storage. There is no remote extension backend and no analytics.
 
 ## Development rule
 
-Do not edit `content.js` directly. Change `RER-Reader.user.js`, bump its
-`@version`, then rebuild the extension.
+Do not edit generated `content.js`, `manifest.json`, `dist/`, or package
+ZIPs by hand.
+
+Change the canonical userscript or manifest source files, then run:
+
+```bash
+python extension/build_extension.py
+```
