@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RER Reading Buffer
 // @namespace    kiwinokoto.local
-// @version      0.1.0
+// @version      0.1.1
 // @description  Garde jusqu'a 5 chapitres/pages de lecture d'avance pour les coupures reseau.
 // @author       Kevin + ChatGPT
 // @match        *://*/*
@@ -371,42 +371,86 @@
     return { record };
   }
 
-  async function getFreshChapter(url) {
+  async function getFreshCachedChapter(url) {
     const cached = await dbGet('chapters', url);
     const maxAge = CACHE_TTL_DAYS * 24 * 60 * 60 * 1000;
-    if (cached && Date.now() - cached.savedAt < maxAge) return { record: cached, fromCache: true };
-    return fetchChapter(url);
+
+    if (!cached || Date.now() - cached.savedAt >= maxAge) return null;
+    return cached;
+  }
+
+  async function collectCachedAhead(startUrl) {
+    const records = [];
+    let nextUrl = startUrl;
+
+    while (records.length < LOOKAHEAD && nextUrl) {
+      if (new URL(nextUrl).origin !== location.origin) break;
+
+      const record = await getFreshCachedChapter(nextUrl);
+      if (!record) break;
+
+      records.push(record);
+      nextUrl = record.nextUrl;
+    }
+
+    return { records, nextUrl };
+  }
+
+  async function refreshCachedAheadStatus() {
+    const nextUrl = findNextUrl(document, location.href);
+    if (!nextUrl) {
+      status.cachedAhead = 0;
+      return;
+    }
+
+    const { records } = await collectCachedAhead(nextUrl);
+    status.cachedAhead = records.length;
   }
 
   async function prefetchAhead() {
     if (prefetchRunning || !navigator.onLine) return;
     prefetchRunning = true;
 
-    status.cachedAhead = 0;
     status.imageCached = 0;
     status.imageTotal = 0;
-    status.message = 'Préchargement…';
+    status.message = 'Vérification du buffer…';
     updateUI();
 
     try {
-      let current = await saveCurrentChapter();
+      const current = await saveCurrentChapter();
       if (!current?.nextUrl) {
+        status.cachedAhead = 0;
         status.message = 'Pas de chapitre suivant détecté';
         return;
       }
 
       const keep = new Set([current.url]);
       if (current.prevUrl) keep.add(current.prevUrl);
-      let nextUrl = current.nextUrl;
-      const chaptersToImageCache = [];
 
-      for (let i = 0; i < LOOKAHEAD && nextUrl; i += 1) {
+      const cached = await collectCachedAhead(current.nextUrl);
+      for (const record of cached.records) keep.add(record.url);
+
+      status.cachedAhead = cached.records.length;
+      let nextUrl = cached.nextUrl;
+      const chaptersToImageCache = [];
+      let networkFetches = 0;
+
+      status.message = status.cachedAhead
+        ? `${status.cachedAhead}/${LOOKAHEAD} déjà en cache — complément…`
+        : 'Préchargement…';
+      updateUI();
+
+      while (status.cachedAhead < LOOKAHEAD && nextUrl) {
         if (!navigator.onLine) break;
 
         const sameOrigin = new URL(nextUrl).origin === location.origin;
         if (!sameOrigin) break;
 
-        const result = await getFreshChapter(nextUrl);
+        if (networkFetches > 0) await sleep(FETCH_DELAY_MS);
+
+        const result = await fetchChapter(nextUrl);
+        networkFetches += 1;
+
         if (result.error) {
           if (result.error === 'rate-limit') {
             status.message = result.retryAfter
@@ -428,10 +472,9 @@
         updateUI();
 
         nextUrl = record.nextUrl;
-        if (i < LOOKAHEAD - 1 && nextUrl) await sleep(FETCH_DELAY_MS);
       }
 
-      // Une fois les pages HTML en securite, on remplit le cache image doucement.
+      // On ne retravaille les images que pour les nouveaux chapitres téléchargés.
       for (const chapter of chaptersToImageCache) {
         await cacheImagesSlowly(chapter.imageUrls, chapter.url);
       }
@@ -491,6 +534,7 @@
     mountUI();
     status.message = 'Lecture depuis le buffer hors ligne';
     await refreshCacheStats();
+    await refreshCachedAheadStatus();
     updateUI();
     window.scrollTo(0, 0);
     return true;
@@ -686,8 +730,9 @@
   async function boot() {
     if (!isLikelyReaderPage()) return;
 
-    mountUI();
     await refreshCacheStats();
+    await refreshCachedAheadStatus();
+    mountUI();
     updateUI();
 
     // Laisse la page finir tranquillement son propre chargement avant le buffer.
