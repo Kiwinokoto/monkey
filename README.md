@@ -1,12 +1,12 @@
 # Monkey
 
-Petite collection d’outils de confort pour la lecture sur le Web : userscripts et prototype d’extension.
+Reader de confort pour la lecture sur le Web, distribué en userscript et en WebExtension expérimentale. Il est conçu pour la lecture sur ordinateur comme sur mobile, à la maison comme en déplacement.
 
 Compatibles avec **Violentmonkey** et **Tampermonkey**.
 
 ## Installation rapide
 
-### Recommandé : un seul script pour lire dans le RER, le métro ou le train
+### Recommandé : un seul script de lecture
 
 - ⭐ [Installer RER Reader](https://raw.githubusercontent.com/Kiwinokoto/monkey/refs/heads/main/RER-Reader.user.js)
 
@@ -19,13 +19,11 @@ Compatibles avec **Violentmonkey** et **Tampermonkey**.
 
 Il remplace donc, pour cet usage, l'installation simultanée de `RER Reading Buffer` + `Auto Scroll Comics`.
 
-### Scripts séparés
+### Anciennes versions séparées
 
-- 📜 [Installer Auto Scroll — Manga / Manhua / Manhwa / Comics](https://raw.githubusercontent.com/Kiwinokoto/monkey/refs/heads/main/auto-scroll-comics.user.js)
-- 📖 [Installer Auto Scroll — Novels](https://raw.githubusercontent.com/Kiwinokoto/monkey/refs/heads/main/auto-scroll-novels.user.js)
-- 🚇 [Installer RER Reading Buffer](https://raw.githubusercontent.com/Kiwinokoto/monkey/refs/heads/main/RER-Reading-Buffer.user.js)
+Les anciens scripts buffer/comics/novels sont conservés sous `archive/legacy-userscripts/` uniquement pour référence historique. Le Reader unifié est le seul userscript recommandé.
 
-Avec Violentmonkey ou Tampermonkey installé, ouvre directement un lien ci-dessus puis clique sur **Installer** / **Mettre à jour**. Si le navigateur affiche seulement le code brut, utilise **Install from URL / Installer depuis une URL** dans le gestionnaire de userscripts.
+Avec Violentmonkey ou Tampermonkey installé, ouvre le lien du Reader puis clique sur **Installer** / **Mettre à jour**. Si le navigateur affiche seulement le code brut, utilise **Install from URL / Installer depuis une URL** dans le gestionnaire de userscripts.
 
 > **Anciennes versions de développement** — le Reader a été renommé pendant sa conception. Si ton gestionnaire contient encore un script nommé `RER Reader — Buffer + Comic Auto Scroll`, désactive-le ou supprime-le avant d'installer la version actuelle `RER Reader`. À partir de la v1.4.3, le nom et le namespace sont stabilisés et le script déclare explicitement ses URLs de téléchargement et de mise à jour.
 
@@ -128,11 +126,12 @@ La purge manuelle du cache n'est pas exposée dans l'interface normale : le buff
 Le Reader existe aussi sous forme de **WebExtension Manifest V3** pour Firefox
 et Chrome/Chromium dans le dossier `extension/`.
 
-Le code fonctionnel n’est pas dupliqué : `RER-Reader.user.js` reste la source
-de vérité. Le build fusionne un manifest commun avec de petits overlays Firefox
-et Chrome, puis génère les deux packages :
+Le code fonctionnel est développé sous `src/`, puis assemblé en un unique
+`RER-Reader.user.js` installable. L'extension réutilise ensuite cet artefact
+pour produire Firefox et Chrome/Chromium. Pour reconstruire l'ensemble :
 
 ```bash
+python scripts/build_userscript.py
 python extension/build_extension.py
 ```
 
@@ -148,7 +147,11 @@ Voir aussi : [politique de confidentialité](PRIVACY.md).
 
 ## Compatibilité
 
-Les scripts utilisent le format standard `// ==UserScript==` et des API communes à Tampermonkey et Violentmonkey (`GM_getValue`, `GM_setValue` ou API Web standard).
+Le Reader cible **ordinateur et mobile**, sur **Firefox et navigateurs Chromium/dérivés** (Chrome, Edge, Brave, Opera, etc.) autant que les API et gestionnaires de userscripts du navigateur le permettent. Firefox Android est aujourd'hui le chemin mobile le mieux testé, mais le produit n'est ni mobile-only ni Firefox-only.
+
+Le userscript utilise le format standard `// ==UserScript==` et des API communes à Tampermonkey et Violentmonkey (`GM_getValue`, `GM_setValue` ou API Web standard). La WebExtension est construite séparément pour Firefox et Chrome/Chromium.
+
+Voir aussi : [roadmap V3](docs/ROADMAP.md).
 
 Certains sites peuvent modifier fortement leur DOM, appliquer une CSP stricte, utiliser des CDN avec CORS restrictif ou changer leurs liens de navigation. Une adaptation ciblée peut alors être nécessaire.
 

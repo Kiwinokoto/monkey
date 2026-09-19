@@ -6,12 +6,18 @@ on:
       - "RER-Reader.user.js"
       - "extension/**"
       - "tests/**"
+      - "src/**"
+      - "scripts/**"
+      - "docs/ROADMAP.md"
       - ".github/workflows/extension-build-check.yml"
   pull_request:
     paths:
       - "RER-Reader.user.js"
       - "extension/**"
       - "tests/**"
+      - "src/**"
+      - "scripts/**"
+      - "docs/ROADMAP.md"
       - ".github/workflows/extension-build-check.yml"
   workflow_dispatch:
 
@@ -25,6 +31,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+
+      - name: Build canonical userscript
+        run: python scripts/build_userscript.py
 
       - name: Build Firefox and Chrome packages
         run: python extension/build_extension.py
@@ -47,8 +56,8 @@ jobs:
       - name: Lint Firefox package for AMO
         run: npx --yes web-ext@10 lint --source-dir extension/dist/firefox --warnings-as-errors
 
-      - name: Ensure committed generated Firefox dev files are current
-        run: git diff --exit-code -- extension/content.js extension/manifest.json
+      - name: Ensure committed generated files are current
+        run: git diff --exit-code -- RER-Reader.user.js extension/content.js extension/manifest.json
 
       - name: Upload browser packages
         uses: actions/upload-artifact@v4
