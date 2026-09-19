@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         RER Reader — Buffer + Comic Auto Scroll
 // @namespace    kiwinokoto.rer-reader
-// @version      1.2.0
-// @description  Lecture cache-first avec buffer de 5 chapitres, plus auto-scroll desktop/mobile sur manga/manhua/manhwa/webtoon/comics.
+// @version      1.3.0
+// @description  Reader cache-first avec contrôleur adaptatif, buffer de 5 chapitres et auto-scroll comics desktop/mobile.
 // @author       Kevin + ChatGPT
 // @match        *://*/*
 // @noframes
@@ -35,22 +35,47 @@
   const DB_VERSION = 1;
 
   const READER_URL_RE = /(manga|manhwa|manhua|webtoon|comic|webcomic|scantrad|novel|webnovel|lightnovel|fiction|wuxia|chapter|chapitre|reader|read)/i;
+  const STRONG_READER_URL_RE = /(manga|manhwa|manhua|webtoon|comic|webcomic|scantrad|novel|webnovel|lightnovel|light-novel|fiction|wuxia|royalroad|scribblehub|chapter|chapitre|reader)/i;
+  const COMIC_READER_URL_RE = /(manga|manhua|manhwa|webtoon|comic|comics|webcomic|scantrad)/i;
   const NEXT_TEXT_RE = /^(?:next(?:\s+chapter)?|chapter\s+next|chapitre\s+suivant|suivant|next\s*[›»→]?|[›»→])$/i;
   const PREV_TEXT_RE = /^(?:prev(?:ious)?(?:\s+chapter)?|chapter\s+prev(?:ious)?|chapitre\s+pr[eé]c[eé]dent|pr[eé]c[eé]dent|[‹«←])$/i;
 
   let dbPromise;
   let prefetchRunning = false;
   let objectUrls = [];
+
   const READER_COLOR_KEY = 'rerReaderAccentColor';
   const READER_IDLE_OPACITY_KEY = 'rerReaderIdleOpacity';
   const READER_SIZE_KEY = 'rerReaderControlSize';
-  const BADGE_MIN_VISIBLE_MS = 700;
-  const BADGE_FADE_DELAY_MS = 750;
+  const READER_MODE = COMIC_READER_URL_RE.test(location.href) ? 'comic' : 'reader';
+  const READER_POSITION_KEY = `rerReaderControlPosition:${location.origin}:${READER_MODE}`;
+  const LEGACY_SCROLL_POSITION_KEY = 'autoScrollReaderButtonPosition';
+  const CONTROL_LONG_PRESS_MS = 450;
+  const CONTROL_SWIPE_THRESHOLD_PX = 12;
+  const CONTROL_SPEED_PX_PER_STEP = 32;
+  const BUFFER_MIN_VISIBLE_MS = 650;
+  const BUFFER_FADE_DELAY_MS = 800;
+  const SCROLL_GHOST_DELAY_MS = 900;
+  const SPEED_LABEL_MS = 900;
 
-  let badge;
+  let control;
+  let controlIcon;
+  let controlLabel;
   let panel;
-  let badgeFadeTimerId = null;
-  let badgeShownAt = 0;
+  let bufferFadeTimerId = null;
+  let bufferShownAt = 0;
+  let bufferVisible = true;
+  let speedLabelTimerId = null;
+  let ghostTimerId = null;
+  let controlGesture = null;
+  let hasCustomPosition = false;
+  let scrollState = {
+    available: READER_MODE === 'comic',
+    scrolling: false,
+    speed: Number(GM_getValue('autoScrollReaderSpeedPxPerSecond', 250)) || 250,
+    speedVisibleUntil: 0,
+    ghosted: false,
+  };
   let status = {
     cachedAhead: 0,
     expectedAhead: LOOKAHEAD,
@@ -331,7 +356,7 @@
   // ---------------------------------------------------------------------------
   function serializeChapter(doc, pageUrl) {
     const clone = doc.cloneNode(true);
-    clone.querySelectorAll('script, iframe, object, embed, #rer-reading-buffer-badge, #rer-reading-buffer-panel, .asr-reader-control').forEach(el => el.remove());
+    clone.querySelectorAll('script, iframe, object, embed, #rer-reader-control, #rer-reading-buffer-badge, #rer-reading-buffer-panel, .asr-reader-control').forEach(el => el.remove());
     const imageUrls = tagReaderImages(clone, pageUrl);
     const bodyHtml = clone.body?.innerHTML || '';
 
@@ -445,6 +470,7 @@
     status.imageTotal = 0;
     status.problem = false;
     status.message = 'Vérification du buffer…';
+    showBufferStatus();
     updateUI();
 
     try {
@@ -515,18 +541,21 @@
         nextUrl = record.nextUrl;
       }
 
-      // On ne retravaille les images que pour les nouveaux chapitres téléchargés.
+      status.problem = false;
+      status.message = status.cachedAhead
+        ? `${status.cachedAhead}/${LOOKAHEAD} chapitre${status.cachedAhead > 1 ? 's' : ''} prêt${status.cachedAhead > 1 ? 's' : ''}`
+        : 'Aucun chapitre en avance';
+      updateUI();
+      scheduleBufferFade();
+
+      // Les chapitres sont déjà prêts : les images peuvent continuer doucement
+      // sans garder le contrôleur affiché pendant toute leur mise en cache.
       for (const chapter of chaptersToImageCache) {
         await cacheImagesSlowly(chapter.imageUrls, chapter.url);
       }
 
       await pruneOrigin(location.origin, keep);
       await refreshCacheStats();
-
-      status.problem = false;
-      status.message = status.cachedAhead
-        ? `${status.cachedAhead}/${LOOKAHEAD} chapitre${status.cachedAhead > 1 ? 's' : ''} prêt${status.cachedAhead > 1 ? 's' : ''}`
-        : 'Aucun chapitre en avance';
     } catch (error) {
       console.warn('[RER Reading Buffer]', error);
       status.problem = true;
@@ -534,7 +563,7 @@
     } finally {
       prefetchRunning = false;
       updateUI();
-      if (!status.problem) scheduleBadgeFade();
+      if (!status.problem) scheduleBufferFade();
     }
   }
 
@@ -575,9 +604,8 @@
     document.title = record.title || document.title;
     document.body.innerHTML = record.bodyHtml;
 
-    // Les caches créés avant la v1.2 peuvent contenir une copie HTML sans
-    // événements du bouton de scroll. On la retire avant de remonter le vrai contrôle.
-    document.querySelectorAll('.asr-reader-control').forEach(el => el.remove());
+    // Nettoyage des anciennes versions éventuellement sérialisées dans IndexedDB.
+    document.querySelectorAll('#rer-reader-control, #rer-reading-buffer-badge, #rer-reading-buffer-panel, .asr-reader-control').forEach(el => el.remove());
     document.querySelectorAll('.asr-icon').forEach(icon => {
       const oldControl = icon.closest('button');
       if (oldControl) oldControl.remove();
@@ -591,11 +619,12 @@
       : 'Lecture depuis le buffer — réseau indisponible';
     await refreshCacheStats();
     await refreshCachedAheadStatus();
-    document.dispatchEvent(new CustomEvent('rer-reader-content-replaced'));
+    showBufferStatus();
     updateUI();
 
     if (navigator.onLine) {
-      setTimeout(() => void prefetchAhead(), 120);
+      // Laisse le 4/5 respirer un instant avant le complément éventuel.
+      setTimeout(() => void prefetchAhead(), 350);
     }
 
     window.scrollTo(0, 0);
@@ -612,6 +641,7 @@
 
     status.problem = true;
     status.message = 'Chapitre suivant absent du buffer et réseau indisponible';
+    showBufferStatus();
     updateUI();
     return false;
   }
@@ -646,6 +676,7 @@
   window.addEventListener('online', () => {
     status.problem = false;
     status.message = 'Réseau revenu — remise à niveau du buffer';
+    showBufferStatus();
     updateUI();
     void prefetchAhead();
   });
@@ -653,93 +684,440 @@
   window.addEventListener('offline', () => {
     status.problem = true;
     status.message = 'Réseau indisponible — lecture depuis le buffer';
+    showBufferStatus();
     updateUI();
   });
 
   window.addEventListener('popstate', () => {
+    showBufferStatus();
     updateUI();
-    if (!status.problem) scheduleBadgeFade(500);
+    if (!status.problem) scheduleBufferFade(500);
   });
 
   // ---------------------------------------------------------------------------
-  // Mini UI
+  // Contrôleur Reader unifié
   // ---------------------------------------------------------------------------
   function normalizeHexColor(value) {
-    return /^#[0-9a-f]{6}$/i.test(String(value || '')) ? value : '#ffffff';
+    return /^#[0-9a-f]{6}$/i.test(String(value || '')) ? value : '#49c6d6';
+  }
+
+  function hexToRgb(hex) {
+    const value = normalizeHexColor(hex).slice(1);
+    return {
+      r: Number.parseInt(value.slice(0, 2), 16),
+      g: Number.parseInt(value.slice(2, 4), 16),
+      b: Number.parseInt(value.slice(4, 6), 16),
+    };
+  }
+
+  function mixRgb(a, b, amount) {
+    const t = Math.max(0, Math.min(1, amount));
+    return {
+      r: Math.round(a.r + (b.r - a.r) * t),
+      g: Math.round(a.g + (b.g - a.g) * t),
+      b: Math.round(a.b + (b.b - a.b) * t),
+    };
+  }
+
+  function rgbCss(rgb) {
+    return `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`;
+  }
+
+  function rgbaCss(rgb, alpha) {
+    return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
+  }
+
+  function channelLuminance(channel) {
+    const c = channel / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  }
+
+  function relativeLuminance(rgb) {
+    return 0.2126 * channelLuminance(rgb.r)
+      + 0.7152 * channelLuminance(rgb.g)
+      + 0.0722 * channelLuminance(rgb.b);
+  }
+
+  function contrastRatio(a, b) {
+    const l1 = relativeLuminance(a);
+    const l2 = relativeLuminance(b);
+    return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+  }
+
+  function bestTextColor(surface) {
+    const dark = { r: 17, g: 24, b: 39 };
+    const light = { r: 255, g: 255, b: 255 };
+    return contrastRatio(surface, dark) >= contrastRatio(surface, light)
+      ? rgbCss(dark)
+      : rgbCss(light);
   }
 
   function getReaderAppearance() {
+    const storedSize = GM_getValue(READER_SIZE_KEY, 'normal');
     return {
-      color: normalizeHexColor(GM_getValue(READER_COLOR_KEY, '#ffffff')),
-      opacity: Math.max(0.25, Math.min(1, Number(GM_getValue(READER_IDLE_OPACITY_KEY, 0.9)) || 0.9)),
-      size: ['small', 'normal', 'large'].includes(GM_getValue(READER_SIZE_KEY, 'normal'))
-        ? GM_getValue(READER_SIZE_KEY, 'normal')
+      color: normalizeHexColor(GM_getValue(READER_COLOR_KEY, '#49c6d6')),
+      opacity: Math.max(
+        0.25,
+        Math.min(1, Number(GM_getValue(READER_IDLE_OPACITY_KEY, 0.9)) || 0.9)
+      ),
+      size: ['small', 'normal', 'large'].includes(storedSize)
+        ? storedSize
         : 'normal',
     };
   }
 
-  function emitAppearanceChange() {
-    document.dispatchEvent(new CustomEvent('rer-reader-appearance-change'));
+  function applyReaderAppearance() {
+    if (!control || !panel) return;
+
+    const appearance = getReaderAppearance();
+    const accent = hexToRgb(appearance.color);
+    const surface = mixRgb(accent, { r: 255, g: 255, b: 255 }, 0.62);
+    const border = mixRgb(accent, { r: 0, g: 0, b: 0 }, 0.40);
+    const deep = mixRgb(accent, { r: 0, g: 0, b: 0 }, 0.62);
+    const textColor = bestTextColor(surface);
+
+    const sizePx = {
+      small: 40,
+      normal: 47,
+      large: 55,
+    }[appearance.size];
+
+    control.style.setProperty('--rr-size', `${sizePx}px`);
+    control.style.setProperty('--rr-idle-opacity', String(appearance.opacity));
+    control.style.setProperty('--rr-text', textColor);
+    control.style.setProperty('--rr-border', rgbaCss(border, 0.88));
+    control.style.setProperty('--rr-shadow', rgbaCss(deep, 0.28));
+    control.style.setProperty(
+      '--rr-background',
+      `linear-gradient(145deg, rgba(255,255,255,.78) 0%, ${rgbaCss(surface, 0.72)} 42%, ${rgbaCss(accent, 0.54)} 100%)`
+    );
+
+    panel.style.setProperty('--rr-panel-accent', rgbCss(accent));
+    panel.style.setProperty('--rr-panel-border', rgbaCss(border, 0.76));
+    panel.style.setProperty('--rr-panel-shadow', rgbaCss(deep, 0.30));
+
+    if (hasCustomPosition) {
+      const left = Number.parseFloat(control.style.left);
+      const bottom = Number.parseFloat(control.style.bottom);
+      if (Number.isFinite(left) && Number.isFinite(bottom)) {
+        applyControlPosition(left, bottom);
+      }
+    }
   }
 
-  function showBadge() {
-    if (!badge) return;
-
-    if (badgeFadeTimerId !== null) {
-      clearTimeout(badgeFadeTimerId);
-      badgeFadeTimerId = null;
+  function showBufferStatus() {
+    if (bufferFadeTimerId !== null) {
+      clearTimeout(bufferFadeTimerId);
+      bufferFadeTimerId = null;
     }
 
-    if (badge.classList.contains('rer-hidden') || !badgeShownAt) {
-      badgeShownAt = Date.now();
-    }
-
-    badge.classList.remove('rer-hidden');
+    if (!bufferVisible) bufferShownAt = Date.now();
+    if (!bufferShownAt) bufferShownAt = Date.now();
+    bufferVisible = true;
+    renderControl();
   }
 
-  function scheduleBadgeFade(delayMs = BADGE_FADE_DELAY_MS) {
-    if (!badge || status.problem || (panel && !panel.hidden)) return;
+  function scheduleBufferFade(delayMs = BUFFER_FADE_DELAY_MS) {
+    if (status.problem || !control) return;
 
-    if (badgeFadeTimerId !== null) clearTimeout(badgeFadeTimerId);
+    if (bufferFadeTimerId !== null) clearTimeout(bufferFadeTimerId);
 
-    const elapsed = badgeShownAt ? Date.now() - badgeShownAt : 0;
-    const waitMs = Math.max(delayMs, BADGE_MIN_VISIBLE_MS - elapsed);
+    const elapsed = bufferShownAt ? Date.now() - bufferShownAt : 0;
+    const waitMs = Math.max(delayMs, BUFFER_MIN_VISIBLE_MS - elapsed);
 
-    badgeFadeTimerId = setTimeout(() => {
-      badgeFadeTimerId = null;
-      if (!badge || status.problem || (panel && !panel.hidden)) return;
-      badge.classList.add('rer-hidden');
+    bufferFadeTimerId = setTimeout(() => {
+      bufferFadeTimerId = null;
+      if (status.problem || (panel && !panel.hidden)) return;
+      bufferVisible = false;
+      renderControl();
     }, waitMs);
+  }
+
+  function clearGhostTimer() {
+    if (ghostTimerId !== null) {
+      clearTimeout(ghostTimerId);
+      ghostTimerId = null;
+    }
+  }
+
+  function scheduleGhost(delayMs = SCROLL_GHOST_DELAY_MS) {
+    clearGhostTimer();
+    if (!scrollState.scrolling) return;
+
+    scrollState.ghosted = false;
+    renderControl();
+
+    ghostTimerId = setTimeout(() => {
+      ghostTimerId = null;
+      if (!scrollState.scrolling) return;
+      scrollState.ghosted = true;
+      renderControl();
+    }, delayMs);
+  }
+
+  function scheduleSpeedLabelClear() {
+    if (speedLabelTimerId !== null) clearTimeout(speedLabelTimerId);
+
+    const waitMs = Math.max(0, scrollState.speedVisibleUntil - Date.now());
+    speedLabelTimerId = setTimeout(() => {
+      speedLabelTimerId = null;
+      renderControl();
+      if (scrollState.scrolling) scheduleGhost(450);
+    }, waitMs);
+  }
+
+  function setControlContent(iconText, labelText, expanded) {
+    if (!control || !controlIcon || !controlLabel) return;
+
+    controlIcon.textContent = iconText;
+    controlLabel.textContent = labelText || '';
+    control.classList.toggle('rr-expanded', Boolean(expanded));
+    control.classList.toggle('rr-compact', !expanded);
+  }
+
+  function renderControl() {
+    if (!control) return;
+
+    const now = Date.now();
+    const panelOpen = panel && !panel.hidden;
+    const speedVisible =
+      scrollState.available &&
+      scrollState.speedVisibleUntil > now;
+
+    let hidden = false;
+    let description = 'Reader';
+
+    if (status.problem) {
+      setControlContent('⚠', `📚 ${status.cachedAhead}/${LOOKAHEAD}`, true);
+      description = `Problème Reader. Buffer ${status.cachedAhead} sur ${LOOKAHEAD}. ${status.message}`;
+    } else if (speedVisible) {
+      setControlContent('↕', `${scrollState.speed} px/s`, true);
+      description = `Vitesse de défilement ${scrollState.speed} pixels par seconde`;
+    } else if (bufferVisible) {
+      setControlContent('📚', `${status.cachedAhead}/${LOOKAHEAD}`, true);
+      description = `Buffer ${status.cachedAhead} sur ${LOOKAHEAD}. ${status.message}`;
+    } else if (scrollState.available) {
+      setControlContent(scrollState.scrolling ? '❚❚' : '▶', '', false);
+      description = scrollState.scrolling
+        ? 'Mettre en pause le défilement automatique'
+        : 'Démarrer le défilement automatique';
+    } else if (panelOpen) {
+      setControlContent('⚙', '', false);
+      description = 'Réglages Reader';
+    } else {
+      hidden = true;
+    }
+
+    control.classList.toggle('rr-hidden', hidden);
+    control.classList.toggle(
+      'rr-ghost',
+      Boolean(
+        scrollState.scrolling &&
+        scrollState.ghosted &&
+        !status.problem &&
+        !bufferVisible &&
+        !speedVisible &&
+        !panelOpen &&
+        !controlGesture
+      )
+    );
+    control.setAttribute('aria-label', description);
+    control.title = description;
+
+    updatePanelStatus();
+  }
+
+  function updatePanelStatus() {
+    if (!panel) return;
+
+    const info = panel.querySelector('.rer-status');
+    if (info) {
+      const parts = [
+        `📚 ${status.cachedAhead}/${LOOKAHEAD}`,
+        navigator.onLine ? 'Réseau OK' : 'Réseau indisponible',
+      ];
+      if (status.problem) parts.push(status.message);
+      info.textContent = parts.join(' · ');
+    }
+
+    const retryBtn = panel.querySelector('#rer-reading-buffer-retry');
+    if (retryBtn) retryBtn.hidden = !status.problem;
+  }
+
+  function updateUI() {
+    renderControl();
+  }
+
+  function applyControlPosition(left, bottom, save = false) {
+    if (!control) return;
+
+    const rect = control.getBoundingClientRect();
+    const maxLeft = Math.max(0, window.innerWidth - rect.width);
+    const maxBottom = Math.max(0, window.innerHeight - rect.height);
+
+    const clampedLeft = Math.min(Math.max(0, left), maxLeft);
+    const clampedBottom = Math.min(Math.max(0, bottom), maxBottom);
+
+    control.style.left = `${clampedLeft}px`;
+    control.style.right = 'auto';
+    control.style.top = 'auto';
+    control.style.bottom = `${clampedBottom}px`;
+    hasCustomPosition = true;
+
+    if (save) {
+      GM_setValue(
+        READER_POSITION_KEY,
+        JSON.stringify({ left: clampedLeft, bottom: clampedBottom })
+      );
+    }
+
+    if (panel && !panel.hidden) positionPanelNearControl();
+  }
+
+  function setControlPositionFromTop(left, top, save = false) {
+    if (!control) return;
+    const rect = control.getBoundingClientRect();
+    const maxTop = Math.max(0, window.innerHeight - rect.height);
+    const clampedTop = Math.min(Math.max(0, top), maxTop);
+    const bottom = window.innerHeight - clampedTop - rect.height;
+    applyControlPosition(left, bottom, save);
+  }
+
+  function loadSavedControlPosition() {
+    let raw = GM_getValue(READER_POSITION_KEY, '');
+
+    if (!raw && READER_MODE === 'comic') {
+      // Migration douce depuis la position globale du vieux scroller.
+      raw = GM_getValue(LEGACY_SCROLL_POSITION_KEY, '');
+    }
+
+    if (!raw) return;
+
+    try {
+      const position = JSON.parse(raw);
+      if (Number.isFinite(position.left) && Number.isFinite(position.bottom)) {
+        applyControlPosition(position.left, position.bottom);
+        return;
+      }
+      if (Number.isFinite(position.left) && Number.isFinite(position.top)) {
+        setControlPositionFromTop(position.left, position.top);
+      }
+    } catch {
+      // Position illisible : on garde l'emplacement par défaut.
+    }
+  }
+
+  function positionPanelNearControl() {
+    if (!control || !panel || panel.hidden) return;
+
+    const controlRect = control.getBoundingClientRect();
+    const panelRect = panel.getBoundingClientRect();
+    const margin = 10;
+
+    let left = controlRect.right - panelRect.width;
+    left = Math.max(margin, Math.min(left, window.innerWidth - panelRect.width - margin));
+
+    let top = controlRect.top - panelRect.height - margin;
+    if (top < margin) {
+      top = Math.min(
+        window.innerHeight - panelRect.height - margin,
+        controlRect.bottom + margin
+      );
+    }
+
+    panel.style.left = `${Math.max(margin, left)}px`;
+    panel.style.top = `${Math.max(margin, top)}px`;
   }
 
   function openReaderPanel() {
     if (!panel) return;
     panel.hidden = false;
-    showBadge();
-    updateUI();
+    bufferVisible = bufferVisible || status.problem;
+    scrollState.ghosted = false;
+    clearGhostTimer();
+    renderControl();
+    requestAnimationFrame(positionPanelNearControl);
   }
 
-  function togglePanel() {
-    if (!panel) return;
-    panel.hidden = !panel.hidden;
+  function closeReaderPanel() {
+    if (!panel || panel.hidden) return;
+    panel.hidden = true;
+    renderControl();
 
-    if (panel.hidden) {
-      if (!status.problem) scheduleBadgeFade(350);
-    } else {
-      showBadge();
+    if (!status.problem && bufferVisible) {
+      scheduleBufferFade(350);
+    }
+    if (scrollState.scrolling) scheduleGhost(500);
+  }
+
+  function clearLongPressTimer() {
+    if (!controlGesture?.longPressTimerId) return;
+    clearTimeout(controlGesture.longPressTimerId);
+    controlGesture.longPressTimerId = null;
+  }
+
+  function speedStepsForDelta(deltaY) {
+    const distance = Math.abs(deltaY);
+    if (distance < CONTROL_SWIPE_THRESHOLD_PX) return 0;
+
+    const direction = deltaY < 0 ? 1 : -1;
+    return direction * (
+      1 +
+      Math.floor(
+        (distance - CONTROL_SWIPE_THRESHOLD_PX) /
+        CONTROL_SPEED_PX_PER_STEP
+      )
+    );
+  }
+
+  function finishControlGesture(event) {
+    if (!controlGesture || event.pointerId !== controlGesture.pointerId) return;
+
+    const state = controlGesture;
+    clearLongPressTimer();
+
+    if (state.mode === 'drag') {
+      const rect = control.getBoundingClientRect();
+      setControlPositionFromTop(rect.left, rect.top, true);
+    } else if (state.mode === 'longpress' && event.type !== 'pointercancel') {
+      openReaderPanel();
+    } else if (state.mode === 'pending' && event.type !== 'pointercancel') {
+      if (scrollState.available) {
+        document.dispatchEvent(new CustomEvent('rer-reader-toggle-scroll'));
+      } else {
+        openReaderPanel();
+      }
     }
 
-    updateUI();
+    if (control.hasPointerCapture(event.pointerId)) {
+      control.releasePointerCapture(event.pointerId);
+    }
+
+    control.classList.remove('rr-pressing');
+    controlGesture = null;
+    renderControl();
+
+    if (scrollState.scrolling) scheduleGhost(650);
   }
 
   function mountUI() {
+    document.getElementById('rer-reader-control')?.remove();
     document.getElementById('rer-reading-buffer-badge')?.remove();
     document.getElementById('rer-reading-buffer-panel')?.remove();
+    document.querySelectorAll('.asr-reader-control').forEach(el => el.remove());
 
-    badge = document.createElement('button');
-    badge.id = 'rer-reading-buffer-badge';
-    badge.type = 'button';
-    badge.addEventListener('click', togglePanel);
+    control = document.createElement('button');
+    control.id = 'rer-reader-control';
+    control.type = 'button';
+
+    controlIcon = document.createElement('span');
+    controlIcon.className = 'rr-icon';
+    controlIcon.setAttribute('aria-hidden', 'true');
+
+    controlLabel = document.createElement('span');
+    controlLabel.className = 'rr-label';
+
+    control.append(controlIcon, controlLabel);
 
     panel = document.createElement('div');
     panel.id = 'rer-reading-buffer-panel';
@@ -756,10 +1134,7 @@
     closeBtn.type = 'button';
     closeBtn.textContent = '×';
     closeBtn.setAttribute('aria-label', 'Fermer');
-    closeBtn.addEventListener('click', () => {
-      panel.hidden = true;
-      if (!status.problem) scheduleBadgeFade(350);
-    });
+    closeBtn.addEventListener('click', closeReaderPanel);
 
     header.append(title, closeBtn);
 
@@ -776,19 +1151,20 @@
 
     const appearanceTitle = document.createElement('div');
     appearanceTitle.className = 'rer-section-title';
-    appearanceTitle.textContent = 'Apparence du contrôle';
+    appearanceTitle.textContent = 'Apparence';
 
     const colorRow = document.createElement('label');
     colorRow.className = 'rer-setting-row';
-    colorRow.append(document.createTextNode('Couleur'));
+    colorRow.append(document.createTextNode('Couleur du thème'));
 
     const colorInput = document.createElement('input');
     colorInput.type = 'color';
     colorInput.value = appearance.color;
-    colorInput.setAttribute('aria-label', 'Couleur du contrôle');
+    colorInput.setAttribute('aria-label', 'Couleur du thème');
     colorInput.addEventListener('input', () => {
       GM_setValue(READER_COLOR_KEY, colorInput.value);
-      emitAppearanceChange();
+      applyReaderAppearance();
+      renderControl();
     });
     colorRow.append(colorInput);
 
@@ -805,7 +1181,8 @@
     opacityInput.setAttribute('aria-label', 'Opacité au repos');
     opacityInput.addEventListener('input', () => {
       GM_setValue(READER_IDLE_OPACITY_KEY, Number(opacityInput.value));
-      emitAppearanceChange();
+      applyReaderAppearance();
+      renderControl();
     });
     opacityRow.append(opacityInput);
 
@@ -815,7 +1192,11 @@
 
     const sizeSelect = document.createElement('select');
     sizeSelect.setAttribute('aria-label', 'Taille du contrôle');
-    for (const [value, label] of [['small', 'Petite'], ['normal', 'Normale'], ['large', 'Grande']]) {
+    for (const [value, label] of [
+      ['small', 'Petite'],
+      ['normal', 'Normale'],
+      ['large', 'Grande'],
+    ]) {
       const option = document.createElement('option');
       option.value = value;
       option.textContent = label;
@@ -824,30 +1205,11 @@
     }
     sizeSelect.addEventListener('change', () => {
       GM_setValue(READER_SIZE_KEY, sizeSelect.value);
-      emitAppearanceChange();
+      applyReaderAppearance();
+      renderControl();
+      requestAnimationFrame(positionPanelNearControl);
     });
     sizeRow.append(sizeSelect);
-
-    const advanced = document.createElement('details');
-    advanced.className = 'rer-advanced';
-
-    const summary = document.createElement('summary');
-    summary.textContent = 'Avancé';
-
-    const clearBtn = document.createElement('button');
-    clearBtn.type = 'button';
-    clearBtn.textContent = 'Vider le cache de ce site';
-    clearBtn.addEventListener('click', async () => {
-      await clearOrigin(location.origin);
-      status.cachedAhead = 0;
-      status.cacheBytes = 0;
-      status.problem = false;
-      status.message = 'Cache de ce site vidé';
-      updateUI();
-      scheduleBadgeFade();
-    });
-
-    advanced.append(summary, clearBtn);
 
     panel.append(
       header,
@@ -856,14 +1218,150 @@
       appearanceTitle,
       colorRow,
       opacityRow,
-      sizeRow,
-      advanced
+      sizeRow
     );
-    document.body.append(badge, panel);
 
+    document.body.append(control, panel);
     injectStyles();
-    badgeShownAt = Date.now();
-    updateUI();
+    applyReaderAppearance();
+    loadSavedControlPosition();
+
+    bufferVisible = true;
+    bufferShownAt = Date.now();
+    renderControl();
+
+    control.addEventListener('contextmenu', event => {
+      event.preventDefault();
+      document.dispatchEvent(new CustomEvent('rer-reader-stop-scroll'));
+      openReaderPanel();
+    });
+
+    control.addEventListener('pointerdown', event => {
+      if (
+        controlGesture ||
+        (event.pointerType === 'mouse' && event.button !== 0)
+      ) {
+        return;
+      }
+
+      scrollState.ghosted = false;
+      clearGhostTimer();
+
+      const rect = control.getBoundingClientRect();
+      controlGesture = {
+        pointerId: event.pointerId,
+        pointerType: event.pointerType,
+        startX: event.clientX,
+        startY: event.clientY,
+        originLeft: rect.left,
+        originTop: rect.top,
+        mode: 'pending',
+        speedSteps: 0,
+        longPressTimerId: null,
+      };
+
+      control.setPointerCapture(event.pointerId);
+
+      if (event.pointerType !== 'mouse') {
+        controlGesture.longPressTimerId = setTimeout(() => {
+          if (!controlGesture || controlGesture.mode !== 'pending') return;
+          controlGesture.longPressTimerId = null;
+          controlGesture.mode = 'longpress';
+          control.classList.add('rr-pressing');
+          renderControl();
+        }, CONTROL_LONG_PRESS_MS);
+      }
+
+      renderControl();
+    });
+
+    control.addEventListener('pointermove', event => {
+      if (!controlGesture || event.pointerId !== controlGesture.pointerId) return;
+
+      const deltaX = event.clientX - controlGesture.startX;
+      const deltaY = event.clientY - controlGesture.startY;
+      const distance = Math.hypot(deltaX, deltaY);
+
+      if (controlGesture.pointerType === 'mouse') {
+        if (controlGesture.mode === 'pending' && distance >= 4) {
+          controlGesture.mode = 'drag';
+        }
+
+        if (controlGesture.mode === 'drag') {
+          event.preventDefault();
+          setControlPositionFromTop(
+            controlGesture.originLeft + deltaX,
+            controlGesture.originTop + deltaY
+          );
+        }
+        return;
+      }
+
+      if (controlGesture.mode === 'longpress') {
+        if (distance >= 4) {
+          controlGesture.mode = 'drag';
+          control.classList.remove('rr-pressing');
+        } else {
+          return;
+        }
+      }
+
+      if (controlGesture.mode === 'drag') {
+        event.preventDefault();
+        setControlPositionFromTop(
+          controlGesture.originLeft + deltaX,
+          controlGesture.originTop + deltaY
+        );
+        return;
+      }
+
+      if (controlGesture.mode === 'pending') {
+        const verticalEnough =
+          scrollState.available &&
+          Math.abs(deltaY) >= CONTROL_SWIPE_THRESHOLD_PX &&
+          Math.abs(deltaY) > Math.abs(deltaX) * 1.2;
+
+        if (verticalEnough) {
+          clearLongPressTimer();
+          controlGesture.mode = 'speed';
+        } else if (distance >= CONTROL_SWIPE_THRESHOLD_PX) {
+          clearLongPressTimer();
+          controlGesture.mode = 'cancelled';
+        }
+      }
+
+      if (controlGesture.mode === 'speed') {
+        event.preventDefault();
+        const steps = speedStepsForDelta(deltaY);
+        const deltaSteps = steps - controlGesture.speedSteps;
+
+        if (deltaSteps !== 0) {
+          controlGesture.speedSteps = steps;
+          document.dispatchEvent(
+            new CustomEvent('rer-reader-speed-steps', {
+              detail: { steps: deltaSteps },
+            })
+          );
+        }
+      }
+    });
+
+    control.addEventListener('pointerup', finishControlGesture);
+    control.addEventListener('pointercancel', finishControlGesture);
+
+    control.addEventListener(
+      'wheel',
+      event => {
+        if (!scrollState.available) return;
+        event.preventDefault();
+        document.dispatchEvent(
+          new CustomEvent('rer-reader-speed-steps', {
+            detail: { steps: event.deltaY < 0 ? 1 : -1 },
+          })
+        );
+      },
+      { passive: false }
+    );
   }
 
   function injectStyles() {
@@ -872,57 +1370,137 @@
     const style = document.createElement('style');
     style.id = 'rer-reading-buffer-style';
     style.textContent = `
-      #rer-reading-buffer-badge {
+      #rer-reader-control {
         position: fixed;
-        right: 12px;
-        bottom: 12px;
+        right: 16px;
+        bottom: 16px;
         z-index: 2147483646;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-width: 0;
-        min-height: 30px;
+        gap: 7px;
+        box-sizing: border-box;
+        width: auto;
+        min-width: var(--rr-size, 47px);
+        height: var(--rr-size, 47px);
         margin: 0;
-        border: 0;
+        padding: 0 13px;
+        overflow: hidden;
+        border: 1px solid var(--rr-border, rgba(20, 80, 90, .8));
         border-radius: 999px;
-        padding: 7px 10px;
         appearance: none;
         -webkit-appearance: none;
+        background: var(--rr-background, rgba(255,255,255,.72));
+        color: var(--rr-text, #111827);
+        box-shadow:
+          0 7px 24px var(--rr-shadow, rgba(0,0,0,.22)),
+          inset 0 1px 0 rgba(255,255,255,.70);
+        font: 650 14px/1 system-ui, -apple-system, "Segoe UI", "Segoe UI Emoji", "Apple Color Emoji", sans-serif;
         white-space: nowrap;
-        background: rgba(20,20,24,.88);
-        color: white;
-        font: 600 12px/1 system-ui, -apple-system, "Segoe UI", "Segoe UI Emoji", "Apple Color Emoji", sans-serif;
-        letter-spacing: 0;
-        box-shadow: 0 2px 10px rgba(0,0,0,.25);
-        cursor: pointer;
-        opacity: .88;
-        transform: translateY(0);
-        transition: opacity 420ms ease, transform 420ms ease;
+        cursor: grab;
+        opacity: var(--rr-idle-opacity, .9);
+        user-select: none;
+        touch-action: none;
+        backdrop-filter: blur(12px) saturate(135%);
+        -webkit-backdrop-filter: blur(12px) saturate(135%);
+        transition:
+          opacity 360ms ease,
+          width 220ms ease,
+          min-width 220ms ease,
+          padding 220ms ease,
+          transform 160ms ease,
+          box-shadow 220ms ease;
         -webkit-tap-highlight-color: transparent;
       }
 
-      #rer-reading-buffer-badge.rer-hidden {
-        opacity: 0;
-        transform: translateY(4px);
+      #rer-reader-control::before {
+        content: "";
+        position: absolute;
+        left: 5px;
+        right: 5px;
+        top: 3px;
+        height: 42%;
+        border-radius: 999px;
+        background: linear-gradient(180deg, rgba(255,255,255,.72), rgba(255,255,255,0));
+        opacity: .72;
         pointer-events: none;
+      }
+
+      #rer-reader-control > * {
+        position: relative;
+        z-index: 1;
+      }
+
+      #rer-reader-control.rr-compact {
+        width: var(--rr-size, 47px);
+        min-width: var(--rr-size, 47px);
+        padding-left: 0;
+        padding-right: 0;
+      }
+
+      #rer-reader-control.rr-expanded {
+        width: auto;
+        min-width: calc(var(--rr-size, 47px) + 38px);
+      }
+
+      #rer-reader-control.rr-hidden {
+        opacity: 0;
+        transform: translateY(5px) scale(.96);
+        pointer-events: none;
+      }
+
+      #rer-reader-control.rr-ghost:not(:hover) {
+        opacity: .10;
+      }
+
+      #rer-reader-control:hover,
+      #rer-reader-control.rr-pressing {
+        opacity: var(--rr-idle-opacity, .9) !important;
+      }
+
+      #rer-reader-control.rr-pressing {
+        transform: scale(.96);
+        box-shadow:
+          0 4px 15px var(--rr-shadow, rgba(0,0,0,.18)),
+          inset 0 1px 0 rgba(255,255,255,.72);
+      }
+
+      #rer-reader-control .rr-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 1.15em;
+        line-height: 1;
+      }
+
+      #rer-reader-control .rr-label {
+        display: inline-block;
+        line-height: 1;
+      }
+
+      #rer-reader-control.rr-compact .rr-label {
+        display: none;
       }
 
       #rer-reading-buffer-panel {
         position: fixed;
-        right: 12px;
-        bottom: 52px;
-        z-index: 2147483646;
-        min-width: 245px;
-        max-width: min(340px, calc(100vw - 24px));
-        padding: 10px;
-        border-radius: 12px;
-        background: rgba(20,20,24,.96);
+        z-index: 2147483647;
+        min-width: 250px;
+        max-width: min(350px, calc(100vw - 20px));
+        padding: 11px;
+        border: 1px solid var(--rr-panel-border, rgba(255,255,255,.2));
+        border-radius: 15px;
+        background: rgba(18,20,24,.82);
         color: white;
-        font: 12px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
-        box-shadow: 0 4px 18px rgba(0,0,0,.35);
+        font: 12px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+        box-shadow: 0 14px 42px var(--rr-panel-shadow, rgba(0,0,0,.34));
+        backdrop-filter: blur(18px) saturate(135%);
+        -webkit-backdrop-filter: blur(18px) saturate(135%);
       }
 
-      #rer-reading-buffer-panel[hidden] { display: none !important; }
+      #rer-reading-buffer-panel[hidden] {
+        display: none !important;
+      }
 
       #rer-reading-buffer-panel .rer-panel-header,
       #rer-reading-buffer-panel .rer-setting-row {
@@ -933,23 +1511,27 @@
       }
 
       #rer-reading-buffer-panel .rer-panel-header {
-        margin-bottom: 8px;
-        font-size: 13px;
+        margin-bottom: 7px;
+        font-size: 14px;
+      }
+
+      #rer-reading-buffer-panel .rer-panel-header strong {
+        color: var(--rr-panel-accent, #7de6ef);
       }
 
       #rer-reading-buffer-panel .rer-status {
-        margin-bottom: 8px;
-        white-space: pre-line;
-        opacity: .9;
+        margin-bottom: 7px;
+        opacity: .78;
       }
 
       #rer-reading-buffer-panel .rer-section-title {
-        margin: 10px 0 6px;
-        font-weight: 650;
+        margin: 9px 0 6px;
+        font-weight: 700;
       }
 
       #rer-reading-buffer-panel .rer-setting-row {
-        margin: 6px 0;
+        min-height: 32px;
+        margin: 4px 0;
       }
 
       #rer-reading-buffer-panel input[type="range"] {
@@ -957,29 +1539,30 @@
       }
 
       #rer-reading-buffer-panel input[type="color"] {
-        width: 38px;
-        height: 28px;
+        width: 42px;
+        height: 29px;
         padding: 0;
         border: 0;
+        border-radius: 8px;
         background: transparent;
       }
 
       #rer-reading-buffer-panel select {
-        min-width: 92px;
+        min-width: 94px;
       }
 
       #rer-reading-buffer-panel button,
       #rer-reading-buffer-panel select {
         border: 0;
-        border-radius: 8px;
-        padding: 6px 8px;
-        background: #fff;
-        color: #111;
+        border-radius: 9px;
+        padding: 6px 9px;
+        background: rgba(255,255,255,.94);
+        color: #111827;
         font: inherit;
       }
 
       #rer-reading-buffer-retry {
-        margin: 2px 0 6px;
+        margin: 2px 0 5px;
       }
 
       #rer-reading-buffer-close {
@@ -987,55 +1570,67 @@
         padding: 2px 7px !important;
         background: transparent !important;
         color: white !important;
-        font-size: 18px !important;
+        font-size: 19px !important;
         line-height: 1 !important;
         cursor: pointer;
-      }
-
-      #rer-reading-buffer-panel .rer-advanced {
-        margin-top: 8px;
-        opacity: .88;
-      }
-
-      #rer-reading-buffer-panel .rer-advanced button {
-        margin-top: 8px;
       }
     `;
 
     document.head.appendChild(style);
   }
 
-  function formatBytes(bytes) {
-    if (!bytes) return '0 Mo';
-    return `${(bytes / 1024 / 1024).toFixed(bytes > 10 * 1024 * 1024 ? 0 : 1)} Mo`;
-  }
+  document.addEventListener('rer-reader-scroll-state', event => {
+    const detail = event.detail || {};
+    const wasScrolling = scrollState.scrolling;
 
-  function updateUI() {
-    if (!badge || !panel) return;
-
-    const online = navigator.onLine;
-    showBadge();
-
-    badge.textContent = `📚 ${status.cachedAhead}/${LOOKAHEAD}${online ? '' : ' · OFF'}`;
-    badge.title = status.message;
-    badge.setAttribute('aria-label', `Buffer ${status.cachedAhead} sur ${LOOKAHEAD}. ${status.message}`);
-
-    const info = panel.querySelector('.rer-status');
-    if (info) {
-      const lines = [
-        `Buffer ${status.cachedAhead}/${LOOKAHEAD} · ${formatBytes(status.cacheBytes)}`,
-        online ? 'Réseau OK' : 'Réseau indisponible',
-      ];
-
-      if (status.problem) lines.push(status.message);
-      info.textContent = lines.join('\n');
+    if (typeof detail.scrolling === 'boolean') {
+      scrollState.scrolling = detail.scrolling;
+    }
+    if (Number.isFinite(detail.speed)) {
+      scrollState.speed = detail.speed;
     }
 
-    const retryBtn = panel.querySelector('#rer-reading-buffer-retry');
-    if (retryBtn) retryBtn.hidden = !status.problem;
-  }
+    if (detail.showSpeed) {
+      scrollState.speedVisibleUntil = Date.now() + SPEED_LABEL_MS;
+      scrollState.ghosted = false;
+      clearGhostTimer();
+      scheduleSpeedLabelClear();
+    }
 
-  document.addEventListener('rer-reader-open-panel', openReaderPanel);
+    if (!wasScrolling && scrollState.scrolling && !detail.showSpeed) {
+      scheduleGhost();
+    } else if (wasScrolling && !scrollState.scrolling) {
+      clearGhostTimer();
+      scrollState.ghosted = false;
+    }
+
+    renderControl();
+  });
+
+  document.addEventListener('pointerdown', event => {
+    if (!panel || panel.hidden) return;
+    if (event.target instanceof Node && (panel.contains(event.target) || control?.contains(event.target))) {
+      return;
+    }
+    closeReaderPanel();
+  }, true);
+
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && panel && !panel.hidden) {
+      closeReaderPanel();
+    }
+  });
+
+  window.addEventListener('resize', () => {
+    if (hasCustomPosition && control) {
+      const left = Number.parseFloat(control.style.left);
+      const bottom = Number.parseFloat(control.style.bottom);
+      if (Number.isFinite(left) && Number.isFinite(bottom)) {
+        applyControlPosition(left, bottom);
+      }
+    }
+    if (panel && !panel.hidden) positionPanelNearControl();
+  });
 
   async function refreshCacheStats() {
     const [chapters, resources] = await Promise.all([dbAll('chapters'), dbAll('resources')]);
@@ -1061,7 +1656,7 @@
   // Boot
   // ---------------------------------------------------------------------------
   async function boot() {
-    if (!isLikelyReaderPage()) return;
+    if (!isLikelyReaderPage() && !STRONG_READER_URL_RE.test(location.href)) return;
 
     await refreshCacheStats();
     await refreshCachedAheadStatus();
@@ -1077,7 +1672,7 @@
 
 
 // -----------------------------------------------------------------------------
-// Module 2 — Comic auto-scroll
+// Module 2 — Comic auto-scroll engine
 // -----------------------------------------------------------------------------
 (() => {
   "use strict";
@@ -1086,30 +1681,14 @@
   if (!COMIC_READER_URL_RE.test(location.href)) return;
 
   const SPEED_STORAGE_KEY = "autoScrollReaderSpeedPxPerSecond";
-  const POSITION_STORAGE_KEY = "autoScrollReaderButtonPosition";
-
   const MIN_SPEED = -1000;
   const MAX_SPEED = 1000;
   const SPEED_STEP = 50;
-  const TOUCH_LONG_PRESS_MS = 450;
-  const TOUCH_SWIPE_THRESHOLD_PX = 12;
-  const TOUCH_SPEED_PX_PER_STEP = 32;
-  const READER_COLOR_KEY = "rerReaderAccentColor";
-  const READER_IDLE_OPACITY_KEY = "rerReaderIdleOpacity";
-  const READER_SIZE_KEY = "rerReaderControlSize";
-  const SCROLL_GHOST_OPACITY = 0.1;
-  const SCROLL_GHOST_DELAY_MS = 900;
 
   let scrolling = false;
-  let buttonHovered = false;
   let rafId = null;
   let lastTimestamp = null;
   let scrollTargetY = null;
-  let gestureState = null;
-  let suppressNextClick = false;
-  let hasCustomPosition = false;
-  let ghostTimerId = null;
-  let scrollGhosted = false;
 
   const legacySavedSpeed = Number(localStorage.getItem(SPEED_STORAGE_KEY));
   const defaultSpeed = Number.isFinite(legacySavedSpeed)
@@ -1123,6 +1702,14 @@
   let speed = Number.isFinite(storedSpeed)
     ? Math.max(MIN_SPEED, Math.min(MAX_SPEED, storedSpeed))
     : 250;
+
+  function publishScrollState({ showSpeed = false } = {}) {
+    document.dispatchEvent(
+      new CustomEvent("rer-reader-scroll-state", {
+        detail: { scrolling, speed, showSpeed },
+      })
+    );
+  }
 
   function saveSpeed() {
     GM_setValue(SPEED_STORAGE_KEY, speed);
@@ -1138,11 +1725,7 @@
 
   function getMaximumScrollY() {
     const scrollingElement = getScrollingElement();
-
-    return Math.max(
-      0,
-      scrollingElement.scrollHeight - window.innerHeight
-    );
+    return Math.max(0, scrollingElement.scrollHeight - window.innerHeight);
   }
 
   function getNearTop() {
@@ -1161,9 +1744,7 @@
   }
 
   async function enterFullscreenIfNeeded() {
-    if (isFullscreen()) {
-      return;
-    }
+    if (isFullscreen()) return;
 
     const element = document.documentElement;
 
@@ -1174,236 +1755,19 @@
         element.webkitRequestFullscreen();
       }
     } catch {
-      // Si le navigateur refuse le fullscreen, l'auto-scroll reste utilisable.
+      // Le navigateur peut refuser le plein écran ; le scroll reste utilisable.
     }
-  }
-
-  const style = document.createElement("style");
-
-  style.textContent = `
-    html.asr-scrolling {
-      scroll-behavior: auto !important;
-    }
-
-    .asr-icon {
-      position: relative;
-      display: inline-block;
-      width: 1.15em;
-      min-width: 1.15em;
-      height: 1em;
-      color: #111827;
-      line-height: 1;
-    }
-
-    .asr-icon--play::before {
-      content: "";
-      position: absolute;
-      left: 0.38em;
-      top: 0.14em;
-      width: 0;
-      height: 0;
-      border-top: 0.36em solid transparent;
-      border-bottom: 0.36em solid transparent;
-      border-left: 0.52em solid currentColor;
-    }
-
-    .asr-icon--pause::before,
-    .asr-icon--pause::after {
-      content: "";
-      position: absolute;
-      top: 0.16em;
-      width: 0.18em;
-      height: 0.68em;
-      border-radius: 999px;
-      background: currentColor;
-    }
-
-    .asr-icon--pause::before {
-      left: 0.35em;
-    }
-
-    .asr-icon--pause::after {
-      right: 0.35em;
-    }
-
-    .asr-label {
-      display: inline-block;
-      color: inherit;
-      white-space: nowrap;
-    }
-
-    .asr-menu {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-width: 1.25em;
-      margin-left: 0.12rem;
-      padding-left: 0.38rem;
-      border-left: 1px solid currentColor;
-      opacity: 0.72;
-      font-weight: 700;
-      line-height: 1;
-    }
-  `;
-
-  document.head.appendChild(style);
-
-  const button = document.createElement("button");
-  button.className = "asr-reader-control";
-  const icon = document.createElement("span");
-  const label = document.createElement("span");
-  const menuIcon = document.createElement("span");
-
-  button.setAttribute(
-    "aria-label",
-    "Activer ou mettre en pause l'auto-scroll"
-  );
-
-  icon.className = "asr-icon";
-  icon.setAttribute("aria-hidden", "true");
-
-  label.className = "asr-label";
-
-  menuIcon.className = "asr-menu";
-  menuIcon.textContent = "⋮";
-  menuIcon.setAttribute("aria-hidden", "true");
-
-  button.append(icon, label, menuIcon);
-
-  Object.assign(button.style, {
-    position: "fixed",
-    right: "1rem",
-    bottom: "5rem",
-    zIndex: "999999",
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "0.35rem",
-    minWidth: "8.9rem",
-    justifyContent: "center",
-    padding: "0.65rem 0.95rem",
-    border: "1px solid rgba(17, 24, 39, 0.7)",
-    borderRadius: "999px",
-    background: "rgba(255, 255, 255, 0.9)",
-    color: "#111827",
-    fontSize: "0.95rem",
-    fontFamily: "system-ui, sans-serif",
-    cursor: "grab",
-    boxShadow: "0 0.25rem 0.8rem rgba(0,0,0,0.18)",
-    opacity: "0.9",
-    userSelect: "none",
-    touchAction: "none",
-    backdropFilter: "blur(0.35rem)",
-    transition:
-      "opacity 160ms ease, box-shadow 160ms ease, transform 160ms ease",
-    appearance: "none",
-    outline: "none",
-    WebkitTapHighlightColor: "transparent",
-  });
-
-  function normalizeReaderColor(value) {
-    return /^#[0-9a-f]{6}$/i.test(String(value || "")) ? value : "#ffffff";
-  }
-
-  function readableTextColor(hex) {
-    const value = normalizeReaderColor(hex).slice(1);
-    const r = Number.parseInt(value.slice(0, 2), 16);
-    const g = Number.parseInt(value.slice(2, 4), 16);
-    const b = Number.parseInt(value.slice(4, 6), 16);
-    return (r * 299 + g * 587 + b * 114) > 150000 ? "#111827" : "#ffffff";
-  }
-
-  function getReaderAppearance() {
-    const color = normalizeReaderColor(GM_getValue(READER_COLOR_KEY, "#ffffff"));
-    const opacity = Math.max(
-      0.25,
-      Math.min(1, Number(GM_getValue(READER_IDLE_OPACITY_KEY, 0.9)) || 0.9)
-    );
-    const storedSize = GM_getValue(READER_SIZE_KEY, "normal");
-    const size = ["small", "normal", "large"].includes(storedSize)
-      ? storedSize
-      : "normal";
-
-    return { color, opacity, size };
-  }
-
-  function applyReaderAppearance() {
-    const appearance = getReaderAppearance();
-    const textColor = readableTextColor(appearance.color);
-
-    button.style.background = appearance.color;
-    button.style.color = textColor;
-    button.style.borderColor = textColor;
-
-    const sizes = {
-      small: { fontSize: "0.82rem", padding: "0.52rem 0.72rem", minWidth: "7.6rem" },
-      normal: { fontSize: "0.95rem", padding: "0.65rem 0.95rem", minWidth: "8.9rem" },
-      large: { fontSize: "1.08rem", padding: "0.78rem 1.08rem", minWidth: "10rem" },
-    };
-    const size = sizes[appearance.size];
-    button.style.fontSize = size.fontSize;
-    button.style.padding = size.padding;
-    button.style.minWidth = size.minWidth;
-  }
-
-  function clearGhostTimer() {
-    if (ghostTimerId !== null) {
-      clearTimeout(ghostTimerId);
-      ghostTimerId = null;
-    }
-  }
-
-  function scheduleGhost(delayMs = SCROLL_GHOST_DELAY_MS) {
-    clearGhostTimer();
-    if (!scrolling) return;
-
-    scrollGhosted = false;
-    updateButton();
-
-    ghostTimerId = setTimeout(() => {
-      ghostTimerId = null;
-      if (!scrolling) return;
-      scrollGhosted = true;
-      updateButton();
-    }, delayMs);
-  }
-
-  function revealControlTemporarily(delayMs = 650) {
-    if (!scrolling) return;
-    scrollGhosted = false;
-    updateButton();
-    scheduleGhost(delayMs);
-  }
-
-  function updateButton() {
-    icon.classList.toggle("asr-icon--play", !scrolling);
-    icon.classList.toggle("asr-icon--pause", scrolling);
-
-    label.textContent = `${speed} px/s`;
-
-    const appearance = getReaderAppearance();
-    const dragging = gestureState?.mode === "drag";
-    const interacting = Boolean(gestureState) || buttonHovered;
-
-    button.style.opacity = String(
-      scrolling && scrollGhosted && !interacting
-        ? Math.min(SCROLL_GHOST_OPACITY, appearance.opacity)
-        : appearance.opacity
-    );
-
-    button.style.cursor = dragging
-      ? "grabbing"
-      : scrolling && buttonHovered
-        ? "none"
-        : "grab";
   }
 
   function stopScroll() {
+    if (!scrolling && rafId === null) {
+      publishScrollState();
+      return;
+    }
+
     scrolling = false;
     lastTimestamp = null;
     scrollTargetY = null;
-    scrollGhosted = false;
-    clearGhostTimer();
-
     document.documentElement.classList.remove("asr-scrolling");
 
     if (rafId !== null) {
@@ -1411,7 +1775,7 @@
       rafId = null;
     }
 
-    updateButton();
+    publishScrollState();
   }
 
   function scrollStep(timestamp) {
@@ -1422,31 +1786,16 @@
       return;
     }
 
-    if (lastTimestamp === null) {
-      lastTimestamp = timestamp;
-    }
+    if (lastTimestamp === null) lastTimestamp = timestamp;
 
-    /*
-     * On limite volontairement le rattrapage après une frame lente :
-     * mieux vaut ralentir très brièvement que produire un saut visible.
-     */
     const elapsedSeconds = Math.min(
       (timestamp - lastTimestamp) / 1000,
       0.05
     );
-
     lastTimestamp = timestamp;
 
     const currentScrollY = getCurrentScrollY();
 
-    /*
-     * Le navigateur peut arrondir la position visible.
-     * Le site peut aussi charger de nouvelles images ou modifier la hauteur
-     * de la page pendant la lecture.
-     *
-     * On conserve normalement notre cible précise en sous-pixels.
-     * Mais si la page s'est fortement décalée, on se resynchronise.
-     */
     if (
       scrollTargetY === null ||
       Math.abs(currentScrollY - scrollTargetY) > 80
@@ -1487,9 +1836,7 @@
   }
 
   async function startScroll({ useFullscreen = false } = {}) {
-    if (scrolling) {
-      return;
-    }
+    if (scrolling) return;
 
     if (useFullscreen) {
       await enterFullscreenIfNeeded();
@@ -1500,23 +1847,18 @@
     scrollTargetY = getCurrentScrollY();
 
     if (speed !== 0) {
-      /*
-       * Certains sites imposent scroll-behavior: smooth.
-       * Ce style interfère avec notre animation continue.
-       */
       document.documentElement.classList.add("asr-scrolling");
       rafId = requestAnimationFrame(scrollStep);
     }
 
-    updateButton();
-    scheduleGhost();
+    publishScrollState();
   }
 
   function toggleScroll({ useFullscreen = false } = {}) {
     if (scrolling) {
       stopScroll();
     } else {
-      startScroll({ useFullscreen });
+      void startScroll({ useFullscreen });
     }
   }
 
@@ -1527,42 +1869,31 @@
     );
 
     saveSpeed();
-    updateButton();
 
     if (scrolling) {
-      revealControlTemporarily();
-    }
-
-    if (!scrolling) {
-      return;
-    }
-
-    if (speed === 0) {
-      document.documentElement.classList.remove("asr-scrolling");
-
-      if (rafId !== null) {
-        cancelAnimationFrame(rafId);
-        rafId = null;
+      if (speed === 0) {
+        document.documentElement.classList.remove("asr-scrolling");
+        if (rafId !== null) {
+          cancelAnimationFrame(rafId);
+          rafId = null;
+        }
+        lastTimestamp = null;
+        scrollTargetY = getCurrentScrollY();
+      } else {
+        document.documentElement.classList.add("asr-scrolling");
+        if (rafId === null) {
+          lastTimestamp = null;
+          scrollTargetY = getCurrentScrollY();
+          rafId = requestAnimationFrame(scrollStep);
+        }
       }
-
-      lastTimestamp = null;
-      scrollTargetY = getCurrentScrollY();
-      return;
     }
 
-    document.documentElement.classList.add("asr-scrolling");
-
-    if (rafId === null) {
-      lastTimestamp = null;
-      scrollTargetY = getCurrentScrollY();
-      rafId = requestAnimationFrame(scrollStep);
-    }
+    publishScrollState({ showSpeed: true });
   }
 
   function isTypingTarget(element) {
-    if (!(element instanceof Element)) {
-      return false;
-    }
+    if (!(element instanceof Element)) return false;
 
     return Boolean(
       element.closest(
@@ -1572,9 +1903,7 @@
   }
 
   function isSpaceReservedTarget(element) {
-    if (!(element instanceof Element)) {
-      return false;
-    }
+    if (!(element instanceof Element)) return false;
 
     const interactiveElement = element.closest(
       "button, summary, a[href], [role='button']"
@@ -1582,393 +1911,43 @@
 
     return Boolean(
       interactiveElement &&
-      interactiveElement !== button
+      interactiveElement.id !== "rer-reader-control"
     );
   }
 
-  function applyButtonPosition(left, bottom, save = false) {
-    const rect = button.getBoundingClientRect();
-
-    const maxLeft = Math.max(0, window.innerWidth - rect.width);
-    const maxBottom = Math.max(
-      0,
-      window.innerHeight - rect.height
-    );
-
-    const clampedLeft = Math.min(
-      Math.max(0, left),
-      maxLeft
-    );
-
-    const clampedBottom = Math.min(
-      Math.max(0, bottom),
-      maxBottom
-    );
-
-    button.style.left = `${clampedLeft}px`;
-    button.style.top = "auto";
-    button.style.right = "auto";
-    button.style.bottom = `${clampedBottom}px`;
-
-    hasCustomPosition = true;
-
-    if (save) {
-      GM_setValue(
-        POSITION_STORAGE_KEY,
-        JSON.stringify({
-          left: clampedLeft,
-          bottom: clampedBottom,
-        })
-      );
-    }
-  }
-
-  function setButtonPosition(left, top, save = false) {
-    const rect = button.getBoundingClientRect();
-
-    const maxTop = Math.max(
-      0,
-      window.innerHeight - rect.height
-    );
-
-    const clampedTop = Math.min(
-      Math.max(0, top),
-      maxTop
-    );
-
-    const bottom =
-      window.innerHeight -
-      clampedTop -
-      rect.height;
-
-    applyButtonPosition(left, bottom, save);
-  }
-
-  function loadSavedButtonPosition() {
-    const rawPosition = GM_getValue(POSITION_STORAGE_KEY, "");
-
-    if (!rawPosition) {
-      return;
-    }
-
-    try {
-      const position = JSON.parse(rawPosition);
-
-      if (
-        Number.isFinite(position.left) &&
-        Number.isFinite(position.bottom)
-      ) {
-        applyButtonPosition(
-          position.left,
-          position.bottom
-        );
-        return;
-      }
-
-      if (
-        Number.isFinite(position.left) &&
-        Number.isFinite(position.top)
-      ) {
-        // Migration de l'ancien format { left, top }.
-        setButtonPosition(
-          position.left,
-          position.top,
-          true
-        );
-      }
-    } catch {
-      // Position invalide : on conserve l'emplacement par défaut.
-    }
-  }
-
-  function clearLongPressTimer() {
-    if (!gestureState?.longPressTimerId) {
-      return;
-    }
-
-    clearTimeout(gestureState.longPressTimerId);
-    gestureState.longPressTimerId = null;
-  }
-
-  function enterDragMode() {
-    if (!gestureState || gestureState.mode !== "tap") {
-      return;
-    }
-
-    const rect = button.getBoundingClientRect();
-
-    gestureState.mode = "drag";
-    gestureState.originLeft = rect.left;
-    gestureState.originTop = rect.top;
-    suppressNextClick = true;
-    updateButton();
-  }
-
-  function speedStepsForDelta(deltaY) {
-    const distance = Math.abs(deltaY);
-
-    if (distance < TOUCH_SWIPE_THRESHOLD_PX) {
-      return 0;
-    }
-
-    const direction = deltaY < 0 ? 1 : -1;
-
-    return direction * (
-      1 +
-      Math.floor(
-        (distance - TOUCH_SWIPE_THRESHOLD_PX) /
-        TOUCH_SPEED_PX_PER_STEP
-      )
-    );
-  }
-
-  function finishPointerGesture(event) {
-    if (
-      !gestureState ||
-      event.pointerId !== gestureState.pointerId
-    ) {
-      return;
-    }
-
-    const state = gestureState;
-    clearLongPressTimer();
-
-    if (state.mode === "drag") {
-      const rect = button.getBoundingClientRect();
-      setButtonPosition(rect.left, rect.top, true);
-    }
-
-    if (state.mode !== "tap" || event.type === "pointercancel") {
-      suppressNextClick = true;
-    }
-
-    if (button.hasPointerCapture(event.pointerId)) {
-      button.releasePointerCapture(event.pointerId);
-    }
-
-    gestureState = null;
-    updateButton();
-    if (scrolling) scheduleGhost(650);
-  }
-
-  button.addEventListener("click", (event) => {
-    if (
-      event.target instanceof Element &&
-      event.target.closest(".asr-menu")
-    ) {
-      event.preventDefault();
-      event.stopPropagation();
-      if (scrolling) stopScroll();
-      document.dispatchEvent(new CustomEvent("rer-reader-open-panel"));
-      return;
-    }
-
-    if (suppressNextClick) {
-      suppressNextClick = false;
-      event.preventDefault();
-      return;
-    }
-
+  document.addEventListener("rer-reader-toggle-scroll", () => {
     toggleScroll({ useFullscreen: true });
   });
 
-  button.addEventListener("contextmenu", (event) => {
-    event.preventDefault();
-    if (scrolling) stopScroll();
-    document.dispatchEvent(new CustomEvent("rer-reader-open-panel"));
+  document.addEventListener("rer-reader-stop-scroll", () => {
+    stopScroll();
   });
 
-  button.addEventListener("mouseenter", () => {
-    buttonHovered = true;
-    button.style.transform = "translateY(-0.05rem)";
-    updateButton();
+  document.addEventListener("rer-reader-speed-steps", event => {
+    const steps = Number(event.detail?.steps);
+    if (!Number.isFinite(steps) || steps === 0) return;
+    changeSpeed(steps * SPEED_STEP);
   });
 
-  button.addEventListener("mouseleave", () => {
-    buttonHovered = false;
-    button.style.transform = "translateY(0)";
-    updateButton();
-  });
-
-  button.addEventListener("pointerdown", (event) => {
-    if (
-      event.target instanceof Element &&
-      event.target.closest(".asr-menu")
-    ) {
-      return;
-    }
-
-    if (
-      gestureState ||
-      (event.pointerType === "mouse" && event.button !== 0)
-    ) {
-      return;
-    }
-
-    if (scrolling) revealControlTemporarily();
-
-    const rect = button.getBoundingClientRect();
-
-    gestureState = {
-      pointerId: event.pointerId,
-      pointerType: event.pointerType,
-      startX: event.clientX,
-      startY: event.clientY,
-      originLeft: rect.left,
-      originTop: rect.top,
-      mode: "tap",
-      speedSteps: 0,
-      longPressTimerId: null,
-    };
-
-    button.setPointerCapture(event.pointerId);
-
-    if (event.pointerType !== "mouse") {
-      gestureState.longPressTimerId = setTimeout(() => {
-        enterDragMode();
-      }, TOUCH_LONG_PRESS_MS);
-    }
-
-    updateButton();
-  });
-
-  button.addEventListener("pointermove", (event) => {
-    if (
-      !gestureState ||
-      event.pointerId !== gestureState.pointerId
-    ) {
-      return;
-    }
-
-    const deltaX = event.clientX - gestureState.startX;
-    const deltaY = event.clientY - gestureState.startY;
-    const distance = Math.hypot(deltaX, deltaY);
-
-    // Souris : on conserve le drag immédiat historique.
-    if (gestureState.pointerType === "mouse") {
-      if (
-        gestureState.mode === "tap" &&
-        distance >= 4
-      ) {
-        gestureState.mode = "drag";
-        suppressNextClick = true;
-        updateButton();
-      }
-
-      if (gestureState.mode === "drag") {
-        event.preventDefault();
-        setButtonPosition(
-          gestureState.originLeft + deltaX,
-          gestureState.originTop + deltaY
-        );
-      }
-
-      return;
-    }
-
-    if (gestureState.mode === "drag") {
-      event.preventDefault();
-      setButtonPosition(
-        gestureState.originLeft + deltaX,
-        gestureState.originTop + deltaY
-      );
-      return;
-    }
-
-    if (gestureState.mode === "tap") {
-      const verticalEnough =
-        Math.abs(deltaY) >= TOUCH_SWIPE_THRESHOLD_PX &&
-        Math.abs(deltaY) > Math.abs(deltaX) * 1.2;
-
-      if (verticalEnough) {
-        clearLongPressTimer();
-        gestureState.mode = "speed";
-        suppressNextClick = true;
-      } else if (distance >= TOUCH_SWIPE_THRESHOLD_PX) {
-        // Un geste surtout horizontal sur le bouton ne déclenche rien.
-        clearLongPressTimer();
-        gestureState.mode = "cancelled";
-        suppressNextClick = true;
-      }
-    }
-
-    if (gestureState.mode === "speed") {
-      event.preventDefault();
-
-      const steps = speedStepsForDelta(deltaY);
-      const deltaSteps = steps - gestureState.speedSteps;
-
-      if (deltaSteps !== 0) {
-        gestureState.speedSteps = steps;
-        changeSpeed(deltaSteps * SPEED_STEP);
-      }
-    }
-  });
-
-  button.addEventListener("pointerup", finishPointerGesture);
-  button.addEventListener("pointercancel", finishPointerGesture);
-
-  button.addEventListener(
-    "wheel",
-    (event) => {
-      event.preventDefault();
-
-      if (event.deltaY < 0) {
-        changeSpeed(SPEED_STEP);
-      } else {
-        changeSpeed(-SPEED_STEP);
-      }
-    },
-    { passive: false }
-  );
-
-  document.body.appendChild(button);
-  applyReaderAppearance();
-  updateButton();
-  loadSavedButtonPosition();
-
-  document.addEventListener("rer-reader-appearance-change", () => {
-    applyReaderAppearance();
-    updateButton();
-  });
-
-  document.addEventListener("rer-reader-content-replaced", () => {
-    if (!button.isConnected) {
-      document.body.appendChild(button);
-      applyReaderAppearance();
-      updateButton();
-      loadSavedButtonPosition();
-    }
-  });
-
-  // Reprendre la main n'importe où dans la page arrête l'auto-scroll sans
-  // consommer le geste : le clic, le lien ou le swipe du site continue normalement.
-  document.addEventListener("pointerdown", (event) => {
+  // Toute interaction avec la page rend immédiatement la main à l'utilisateur.
+  document.addEventListener("pointerdown", event => {
     if (!scrolling) return;
-    if (event.target instanceof Node && button.contains(event.target)) return;
+
+    const control = document.getElementById("rer-reader-control");
+    const panel = document.getElementById("rer-reading-buffer-panel");
+
+    if (
+      event.target instanceof Node &&
+      (control?.contains(event.target) || panel?.contains(event.target))
+    ) {
+      return;
+    }
+
     stopScroll();
   }, true);
 
-  window.addEventListener("resize", () => {
-    if (!hasCustomPosition) {
-      return;
-    }
-
-    const left = Number.parseFloat(button.style.left);
-    const bottom = Number.parseFloat(button.style.bottom);
-
-    if (
-      Number.isFinite(left) &&
-      Number.isFinite(bottom)
-    ) {
-      applyButtonPosition(left, bottom);
-    }
-  });
-
-  document.addEventListener("keydown", (event) => {
-    if (isTypingTarget(event.target)) {
-      return;
-    }
+  document.addEventListener("keydown", event => {
+    if (isTypingTarget(event.target)) return;
 
     const hasModifier =
       event.ctrlKey ||
@@ -1976,15 +1955,10 @@
       event.altKey ||
       event.shiftKey;
 
-    if (hasModifier) {
-      return;
-    }
+    if (hasModifier) return;
 
     if (event.code === "Space" && !event.repeat) {
-      if (isSpaceReservedTarget(event.target)) {
-        return;
-      }
-
+      if (isSpaceReservedTarget(event.target)) return;
       event.preventDefault();
       toggleScroll({ useFullscreen: true });
       return;
@@ -2001,4 +1975,6 @@
       changeSpeed(-SPEED_STEP);
     }
   });
+
+  publishScrollState();
 })();
