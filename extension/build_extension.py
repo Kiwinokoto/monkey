@@ -23,7 +23,7 @@ PACKAGES_DIR = EXTENSION_DIR / "packages"
 
 source = SOURCE.read_text(encoding="utf-8")
 
-version_match = re.search(r"^// @version\\s+([^\\s]+)\\s*$", source, re.MULTILINE)
+version_match = re.search(r"^// @version\s+([^\s]+)\s*$", source, re.MULTILINE)
 if not version_match:
     raise SystemExit("Could not find @version in RER-Reader.user.js")
 
@@ -80,7 +80,7 @@ bootstrap = r'''// GENERATED FILE — source: ../RER-Reader.user.js
     }
   }
 
-''' + core + "\\n})();\\n"
+''' + core + "\n})();\n"
 
 
 def deep_merge(base: dict, overlay: dict) -> dict:
@@ -105,7 +105,7 @@ def build_manifest(overlay_path: Path) -> dict:
 
 def write_json(path: Path, data: dict) -> None:
     path.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2) + "\\n",
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
 
