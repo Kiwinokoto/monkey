@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         RER Reader — Buffer + Comic Auto Scroll
 // @namespace    kiwinokoto.rer-reader
-// @version      1.3.0
-// @description  Reader cache-first avec contrôleur adaptatif, buffer de 5 chapitres et auto-scroll comics desktop/mobile.
+// @version      1.4.0
+// @description  Reader cache-first avec buffer de 5 chapitres et auto-scroll adaptatif comics/novels sur desktop et mobile.
 // @author       Kevin + ChatGPT
 // @match        *://*/*
 // @noframes
@@ -37,6 +37,7 @@
   const READER_URL_RE = /(manga|manhwa|manhua|webtoon|comic|webcomic|scantrad|novel|webnovel|lightnovel|fiction|wuxia|chapter|chapitre|reader|read)/i;
   const STRONG_READER_URL_RE = /(manga|manhwa|manhua|webtoon|comic|webcomic|scantrad|novel|webnovel|lightnovel|light-novel|fiction|wuxia|royalroad|scribblehub|chapter|chapitre|reader)/i;
   const COMIC_READER_URL_RE = /(manga|manhua|manhwa|webtoon|comic|comics|webcomic|scantrad)/i;
+  const NOVEL_READER_URL_RE = /(novel|webnovel|lightnovel|light-novel|fiction|wuxia|royalroad|scribblehub)/i;
   const NEXT_TEXT_RE = /^(?:next(?:\s+chapter)?|chapter\s+next|chapitre\s+suivant|suivant|next\s*[›»→]?|[›»→])$/i;
   const PREV_TEXT_RE = /^(?:prev(?:ious)?(?:\s+chapter)?|chapter\s+prev(?:ious)?|chapitre\s+pr[eé]c[eé]dent|pr[eé]c[eé]dent|[‹«←])$/i;
 
@@ -47,9 +48,20 @@
   const READER_COLOR_KEY = 'rerReaderAccentColor';
   const READER_IDLE_OPACITY_KEY = 'rerReaderIdleOpacity';
   const READER_SIZE_KEY = 'rerReaderControlSize';
-  const READER_MODE = COMIC_READER_URL_RE.test(location.href) ? 'comic' : 'reader';
+  const READER_MODE = COMIC_READER_URL_RE.test(location.href)
+    ? 'comic'
+    : NOVEL_READER_URL_RE.test(location.href)
+      ? 'novel'
+      : 'reader';
   const READER_POSITION_KEY = `rerReaderControlPosition:${location.origin}:${READER_MODE}`;
+  const LEGACY_READER_POSITION_KEY = `rerReaderControlPosition:${location.origin}:reader`;
   const LEGACY_SCROLL_POSITION_KEY = 'autoScrollReaderButtonPosition';
+  const SCROLL_ENABLED_KEY = `rerReaderScrollEnabled:${location.origin}:${READER_MODE}`;
+  const SCROLL_SPEED_KEY = READER_MODE === 'novel'
+    ? 'autoScrollNovelSpeedPxPerSecond'
+    : 'autoScrollReaderSpeedPxPerSecond';
+  const SCROLL_DEFAULT_ENABLED = READER_MODE === 'comic';
+  const SCROLL_DEFAULT_SPEED = READER_MODE === 'novel' ? 40 : 250;
   const CONTROL_LONG_PRESS_MS = 450;
   const CONTROL_SWIPE_THRESHOLD_PX = 12;
   const CONTROL_SPEED_PX_PER_STEP = 32;
@@ -70,9 +82,14 @@
   let controlGesture = null;
   let hasCustomPosition = false;
   let scrollState = {
-    available: READER_MODE === 'comic',
+    available: READER_MODE === 'comic' || READER_MODE === 'novel',
+    enabled: Boolean(GM_getValue(SCROLL_ENABLED_KEY, SCROLL_DEFAULT_ENABLED)),
     scrolling: false,
-    speed: Number(GM_getValue('autoScrollReaderSpeedPxPerSecond', 250)) || 250,
+    speed: Number(GM_getValue(SCROLL_SPEED_KEY, SCROLL_DEFAULT_SPEED)) || SCROLL_DEFAULT_SPEED,
+    mode: READER_MODE,
+    minSpeed: READER_MODE === 'novel' ? -300 : -1000,
+    maxSpeed: READER_MODE === 'novel' ? 100 : 1000,
+    speedStep: READER_MODE === 'novel' ? 10 : 50,
     speedVisibleUntil: 0,
     ghosted: false,
   };
@@ -753,16 +770,21 @@
   }
 
   function getReaderAppearance() {
-    const storedSize = GM_getValue(READER_SIZE_KEY, 'normal');
+    const storedSize = GM_getValue(READER_SIZE_KEY, 47);
+    const legacySizes = { small: 40, normal: 47, large: 55 };
+    const numericSize = Number(
+      Object.prototype.hasOwnProperty.call(legacySizes, storedSize)
+        ? legacySizes[storedSize]
+        : storedSize
+    );
+
     return {
       color: normalizeHexColor(GM_getValue(READER_COLOR_KEY, '#49c6d6')),
       opacity: Math.max(
         0.25,
         Math.min(1, Number(GM_getValue(READER_IDLE_OPACITY_KEY, 0.9)) || 0.9)
       ),
-      size: ['small', 'normal', 'large'].includes(storedSize)
-        ? storedSize
-        : 'normal',
+      size: Math.max(36, Math.min(68, Number.isFinite(numericSize) ? numericSize : 47)),
     };
   }
 
@@ -776,11 +798,7 @@
     const deep = mixRgb(accent, { r: 0, g: 0, b: 0 }, 0.62);
     const textColor = bestTextColor(surface);
 
-    const sizePx = {
-      small: 40,
-      normal: 47,
-      large: 55,
-    }[appearance.size];
+    const sizePx = appearance.size;
 
     control.style.setProperty('--rr-size', `${sizePx}px`);
     control.style.setProperty('--rr-idle-opacity', String(appearance.opacity));
@@ -896,11 +914,14 @@
     } else if (bufferVisible) {
       setControlContent('📚', `${status.cachedAhead}/${LOOKAHEAD}`, true);
       description = `Buffer ${status.cachedAhead} sur ${LOOKAHEAD}. ${status.message}`;
-    } else if (scrollState.available) {
+    } else if (scrollState.available && scrollState.enabled) {
       setControlContent(scrollState.scrolling ? '❚❚' : '▶', '', false);
       description = scrollState.scrolling
         ? 'Mettre en pause le défilement automatique'
         : 'Démarrer le défilement automatique';
+    } else if (scrollState.available) {
+      setControlContent('⚙', '', false);
+      description = 'Auto-scroll désactivé — ouvrir les réglages';
     } else if (panelOpen) {
       setControlContent('⚙', '', false);
       description = 'Réglages Reader';
@@ -909,6 +930,16 @@
     }
 
     control.classList.toggle('rr-hidden', hidden);
+    control.classList.toggle(
+      'rr-dormant',
+      Boolean(
+        scrollState.available &&
+        !scrollState.enabled &&
+        !status.problem &&
+        !bufferVisible &&
+        !panelOpen
+      )
+    );
     control.classList.toggle(
       'rr-ghost',
       Boolean(
@@ -938,6 +969,20 @@
       ];
       if (status.problem) parts.push(status.message);
       info.textContent = parts.join(' · ');
+    }
+
+    const scrollToggle = panel.querySelector('#rer-reader-scroll-toggle');
+    if (scrollToggle) {
+      scrollToggle.checked = Boolean(scrollState.enabled);
+      scrollToggle.disabled = !scrollState.available;
+    }
+
+    const scrollMeta = panel.querySelector('.rer-scroll-meta');
+    if (scrollMeta) {
+      const modeLabel = scrollState.mode === 'novel' ? 'Profil novel' : 'Profil comics';
+      scrollMeta.textContent = scrollState.available
+        ? `${modeLabel} · ${scrollState.speed} px/s · pas ${scrollState.speedStep}`
+        : 'Auto-scroll indisponible sur cette page';
     }
 
     const retryBtn = panel.querySelector('#rer-reading-buffer-retry');
@@ -985,6 +1030,10 @@
 
   function loadSavedControlPosition() {
     let raw = GM_getValue(READER_POSITION_KEY, '');
+
+    if (!raw && READER_MODE === 'novel') {
+      raw = GM_getValue(LEGACY_READER_POSITION_KEY, '');
+    }
 
     if (!raw && READER_MODE === 'comic') {
       // Migration douce depuis la position globale du vieux scroller.
@@ -1082,7 +1131,7 @@
     } else if (state.mode === 'longpress' && event.type !== 'pointercancel') {
       openReaderPanel();
     } else if (state.mode === 'pending' && event.type !== 'pointercancel') {
-      if (scrollState.available) {
+      if (scrollState.available && scrollState.enabled) {
         document.dispatchEvent(new CustomEvent('rer-reader-toggle-scroll'));
       } else {
         openReaderPanel();
@@ -1149,6 +1198,52 @@
 
     const appearance = getReaderAppearance();
 
+    const readingTitle = document.createElement('div');
+    readingTitle.className = 'rer-section-title';
+    readingTitle.textContent = 'Lecture';
+
+    const scrollRow = document.createElement('div');
+    scrollRow.className = 'rer-setting-row rer-switch-row';
+
+    const scrollText = document.createElement('div');
+    scrollText.className = 'rer-setting-copy';
+
+    const scrollLabel = document.createElement('strong');
+    scrollLabel.textContent = 'Auto-scroll';
+
+    const scrollMeta = document.createElement('span');
+    scrollMeta.className = 'rer-scroll-meta';
+
+    scrollText.append(scrollLabel, scrollMeta);
+
+    const switchLabel = document.createElement('label');
+    switchLabel.className = 'rer-switch';
+
+    const scrollToggle = document.createElement('input');
+    scrollToggle.id = 'rer-reader-scroll-toggle';
+    scrollToggle.type = 'checkbox';
+    scrollToggle.checked = Boolean(scrollState.enabled);
+    scrollToggle.disabled = !scrollState.available;
+    scrollToggle.setAttribute('aria-label', 'Activer ou désactiver l’auto-scroll');
+    scrollToggle.addEventListener('change', () => {
+      scrollState.enabled = scrollToggle.checked;
+      GM_setValue(SCROLL_ENABLED_KEY, scrollState.enabled);
+
+      document.dispatchEvent(
+        new CustomEvent('rer-reader-scroll-enabled', {
+          detail: { enabled: scrollState.enabled },
+        })
+      );
+
+      renderControl();
+    });
+
+    const switchTrack = document.createElement('span');
+    switchTrack.className = 'rer-switch-track';
+
+    switchLabel.append(scrollToggle, switchTrack);
+    scrollRow.append(scrollText, switchLabel);
+
     const appearanceTitle = document.createElement('div');
     appearanceTitle.className = 'rer-section-title';
     appearanceTitle.textContent = 'Apparence';
@@ -1169,8 +1264,13 @@
     colorRow.append(colorInput);
 
     const opacityRow = document.createElement('label');
-    opacityRow.className = 'rer-setting-row';
-    opacityRow.append(document.createTextNode('Opacité au repos'));
+    opacityRow.className = 'rer-setting-row rer-slider-row';
+
+    const opacityLabel = document.createElement('span');
+    opacityLabel.textContent = 'Opacité';
+
+    const opacityControls = document.createElement('span');
+    opacityControls.className = 'rer-slider-controls';
 
     const opacityInput = document.createElement('input');
     opacityInput.type = 'range';
@@ -1179,42 +1279,59 @@
     opacityInput.step = '0.05';
     opacityInput.value = String(appearance.opacity);
     opacityInput.setAttribute('aria-label', 'Opacité au repos');
+
+    const opacityOutput = document.createElement('output');
+    opacityOutput.textContent = `${Math.round(appearance.opacity * 100)}%`;
+
     opacityInput.addEventListener('input', () => {
-      GM_setValue(READER_IDLE_OPACITY_KEY, Number(opacityInput.value));
+      const value = Number(opacityInput.value);
+      GM_setValue(READER_IDLE_OPACITY_KEY, value);
+      opacityOutput.textContent = `${Math.round(value * 100)}%`;
       applyReaderAppearance();
       renderControl();
     });
-    opacityRow.append(opacityInput);
+
+    opacityControls.append(opacityInput, opacityOutput);
+    opacityRow.append(opacityLabel, opacityControls);
 
     const sizeRow = document.createElement('label');
-    sizeRow.className = 'rer-setting-row';
-    sizeRow.append(document.createTextNode('Taille'));
+    sizeRow.className = 'rer-setting-row rer-slider-row';
 
-    const sizeSelect = document.createElement('select');
-    sizeSelect.setAttribute('aria-label', 'Taille du contrôle');
-    for (const [value, label] of [
-      ['small', 'Petite'],
-      ['normal', 'Normale'],
-      ['large', 'Grande'],
-    ]) {
-      const option = document.createElement('option');
-      option.value = value;
-      option.textContent = label;
-      option.selected = value === appearance.size;
-      sizeSelect.append(option);
-    }
-    sizeSelect.addEventListener('change', () => {
-      GM_setValue(READER_SIZE_KEY, sizeSelect.value);
+    const sizeLabel = document.createElement('span');
+    sizeLabel.textContent = 'Taille';
+
+    const sizeControls = document.createElement('span');
+    sizeControls.className = 'rer-slider-controls';
+
+    const sizeInput = document.createElement('input');
+    sizeInput.type = 'range';
+    sizeInput.min = '36';
+    sizeInput.max = '68';
+    sizeInput.step = '1';
+    sizeInput.value = String(appearance.size);
+    sizeInput.setAttribute('aria-label', 'Taille du contrôle');
+
+    const sizeOutput = document.createElement('output');
+    sizeOutput.textContent = `${Math.round(appearance.size)} px`;
+
+    sizeInput.addEventListener('input', () => {
+      const value = Number(sizeInput.value);
+      GM_setValue(READER_SIZE_KEY, value);
+      sizeOutput.textContent = `${Math.round(value)} px`;
       applyReaderAppearance();
       renderControl();
       requestAnimationFrame(positionPanelNearControl);
     });
-    sizeRow.append(sizeSelect);
+
+    sizeControls.append(sizeInput, sizeOutput);
+    sizeRow.append(sizeLabel, sizeControls);
 
     panel.append(
       header,
       info,
       retryBtn,
+      readingTitle,
+      scrollRow,
       appearanceTitle,
       colorRow,
       opacityRow,
@@ -1318,6 +1435,7 @@
       if (controlGesture.mode === 'pending') {
         const verticalEnough =
           scrollState.available &&
+          scrollState.enabled &&
           Math.abs(deltaY) >= CONTROL_SWIPE_THRESHOLD_PX &&
           Math.abs(deltaY) > Math.abs(deltaX) * 1.2;
 
@@ -1352,7 +1470,7 @@
     control.addEventListener(
       'wheel',
       event => {
-        if (!scrollState.available) return;
+        if (!scrollState.available || !scrollState.enabled) return;
         event.preventDefault();
         document.dispatchEvent(
           new CustomEvent('rer-reader-speed-steps', {
@@ -1421,8 +1539,23 @@
         top: 3px;
         height: 42%;
         border-radius: 999px;
-        background: linear-gradient(180deg, rgba(255,255,255,.72), rgba(255,255,255,0));
-        opacity: .72;
+        background: linear-gradient(180deg, rgba(255,255,255,.76), rgba(255,255,255,0));
+        opacity: .74;
+        pointer-events: none;
+      }
+
+      #rer-reader-control::after {
+        content: "";
+        position: absolute;
+        top: 7px;
+        left: 20%;
+        width: 28%;
+        height: 4px;
+        border-radius: 999px;
+        background: rgba(255,255,255,.72);
+        filter: blur(.35px);
+        opacity: .55;
+        transform: rotate(-4deg);
         pointer-events: none;
       }
 
@@ -1451,6 +1584,10 @@
 
       #rer-reader-control.rr-ghost:not(:hover) {
         opacity: .10;
+      }
+
+      #rer-reader-control.rr-dormant:not(:hover) {
+        opacity: .18;
       }
 
       #rer-reader-control:hover,
@@ -1485,17 +1622,21 @@
       #rer-reading-buffer-panel {
         position: fixed;
         z-index: 2147483647;
-        min-width: 250px;
-        max-width: min(350px, calc(100vw - 20px));
-        padding: 11px;
+        min-width: 270px;
+        max-width: min(370px, calc(100vw - 20px));
+        padding: 12px;
         border: 1px solid var(--rr-panel-border, rgba(255,255,255,.2));
-        border-radius: 15px;
-        background: rgba(18,20,24,.82);
+        border-radius: 17px;
+        background:
+          linear-gradient(155deg, rgba(255,255,255,.07), rgba(255,255,255,0) 36%),
+          rgba(18,20,24,.84);
         color: white;
         font: 12px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
-        box-shadow: 0 14px 42px var(--rr-panel-shadow, rgba(0,0,0,.34));
-        backdrop-filter: blur(18px) saturate(135%);
-        -webkit-backdrop-filter: blur(18px) saturate(135%);
+        box-shadow:
+          0 16px 46px var(--rr-panel-shadow, rgba(0,0,0,.34)),
+          inset 0 1px 0 rgba(255,255,255,.08);
+        backdrop-filter: blur(19px) saturate(140%);
+        -webkit-backdrop-filter: blur(19px) saturate(140%);
       }
 
       #rer-reading-buffer-panel[hidden] {
@@ -1525,17 +1666,54 @@
       }
 
       #rer-reading-buffer-panel .rer-section-title {
-        margin: 9px 0 6px;
-        font-weight: 700;
+        margin: 11px 0 6px;
+        padding-top: 8px;
+        border-top: 1px solid rgba(255,255,255,.09);
+        color: var(--rr-panel-accent, #7de6ef);
+        font-size: 11px;
+        font-weight: 750;
+        letter-spacing: .055em;
+        text-transform: uppercase;
       }
 
       #rer-reading-buffer-panel .rer-setting-row {
-        min-height: 32px;
+        min-height: 34px;
         margin: 4px 0;
       }
 
+      #rer-reading-buffer-panel .rer-setting-copy {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+      }
+
+      #rer-reading-buffer-panel .rer-setting-copy strong {
+        font-size: 12px;
+      }
+
+      #rer-reading-buffer-panel .rer-scroll-meta {
+        opacity: .62;
+        font-size: 10.5px;
+      }
+
+      #rer-reading-buffer-panel .rer-slider-controls {
+        display: inline-grid;
+        grid-template-columns: minmax(112px, 1fr) 42px;
+        align-items: center;
+        gap: 7px;
+        min-width: 162px;
+      }
+
+      #rer-reading-buffer-panel .rer-slider-controls output {
+        text-align: right;
+        opacity: .72;
+        font-variant-numeric: tabular-nums;
+      }
+
       #rer-reading-buffer-panel input[type="range"] {
-        width: 120px;
+        width: 100%;
+        margin: 0;
+        accent-color: var(--rr-panel-accent, #7de6ef);
       }
 
       #rer-reading-buffer-panel input[type="color"] {
@@ -1547,18 +1725,62 @@
         background: transparent;
       }
 
-      #rer-reading-buffer-panel select {
-        min-width: 94px;
-      }
-
-      #rer-reading-buffer-panel button,
-      #rer-reading-buffer-panel select {
+      #rer-reading-buffer-panel button {
         border: 0;
         border-radius: 9px;
         padding: 6px 9px;
         background: rgba(255,255,255,.94);
         color: #111827;
         font: inherit;
+      }
+
+      #rer-reading-buffer-panel .rer-switch {
+        position: relative;
+        display: inline-flex;
+        width: 42px;
+        height: 24px;
+        flex: 0 0 auto;
+      }
+
+      #rer-reading-buffer-panel .rer-switch input {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      #rer-reading-buffer-panel .rer-switch-track {
+        position: absolute;
+        inset: 0;
+        border-radius: 999px;
+        background: rgba(255,255,255,.17);
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,.10);
+        transition: background 180ms ease, box-shadow 180ms ease;
+      }
+
+      #rer-reading-buffer-panel .rer-switch-track::after {
+        content: "";
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: rgba(255,255,255,.94);
+        box-shadow: 0 2px 7px rgba(0,0,0,.28);
+        transition: transform 180ms ease;
+      }
+
+      #rer-reading-buffer-panel .rer-switch input:checked + .rer-switch-track {
+        background: var(--rr-panel-accent, #7de6ef);
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,.18);
+      }
+
+      #rer-reading-buffer-panel .rer-switch input:checked + .rer-switch-track::after {
+        transform: translateX(18px);
+      }
+
+      #rer-reading-buffer-panel .rer-switch input:disabled + .rer-switch-track {
+        opacity: .38;
       }
 
       #rer-reading-buffer-retry {
@@ -1583,11 +1805,29 @@
     const detail = event.detail || {};
     const wasScrolling = scrollState.scrolling;
 
+    if (typeof detail.available === 'boolean') {
+      scrollState.available = detail.available;
+    }
+    if (typeof detail.enabled === 'boolean') {
+      scrollState.enabled = detail.enabled;
+    }
     if (typeof detail.scrolling === 'boolean') {
       scrollState.scrolling = detail.scrolling;
     }
     if (Number.isFinite(detail.speed)) {
       scrollState.speed = detail.speed;
+    }
+    if (typeof detail.mode === 'string') {
+      scrollState.mode = detail.mode;
+    }
+    if (Number.isFinite(detail.minSpeed)) {
+      scrollState.minSpeed = detail.minSpeed;
+    }
+    if (Number.isFinite(detail.maxSpeed)) {
+      scrollState.maxSpeed = detail.maxSpeed;
+    }
+    if (Number.isFinite(detail.speedStep)) {
+      scrollState.speedStep = detail.speedStep;
     }
 
     if (detail.showSpeed) {
@@ -1672,19 +1912,36 @@
 
 
 // -----------------------------------------------------------------------------
-// Module 2 — Comic auto-scroll engine
+// Module 2 — Auto-scroll engine (comics + novels)
 // -----------------------------------------------------------------------------
 (() => {
   "use strict";
 
   const COMIC_READER_URL_RE = /(manga|manhua|manhwa|webtoon|comic|comics|webcomic|scantrad)/i;
-  if (!COMIC_READER_URL_RE.test(location.href)) return;
+  const NOVEL_READER_URL_RE = /(novel|webnovel|lightnovel|light-novel|fiction|wuxia|royalroad|scribblehub)/i;
 
-  const SPEED_STORAGE_KEY = "autoScrollReaderSpeedPxPerSecond";
-  const MIN_SPEED = -1000;
-  const MAX_SPEED = 1000;
-  const SPEED_STEP = 50;
+  const MODE = COMIC_READER_URL_RE.test(location.href)
+    ? "comic"
+    : NOVEL_READER_URL_RE.test(location.href)
+      ? "novel"
+      : null;
 
+  if (!MODE) return;
+
+  const SPEED_STORAGE_KEY = MODE === "novel"
+    ? "autoScrollNovelSpeedPxPerSecond"
+    : "autoScrollReaderSpeedPxPerSecond";
+
+  const ENABLED_STORAGE_KEY = `rerReaderScrollEnabled:${location.origin}:${MODE}`;
+  const DEFAULT_ENABLED = MODE === "comic";
+  const MIN_SPEED = MODE === "novel" ? -300 : -1000;
+  const MAX_SPEED = MODE === "novel" ? 100 : 1000;
+  const SPEED_STEP = MODE === "novel" ? 10 : 50;
+  const DEFAULT_SPEED = MODE === "novel" ? 40 : 250;
+
+  let enabled = Boolean(
+    GM_getValue(ENABLED_STORAGE_KEY, DEFAULT_ENABLED)
+  );
   let scrolling = false;
   let rafId = null;
   let lastTimestamp = null;
@@ -1693,7 +1950,7 @@
   const legacySavedSpeed = Number(localStorage.getItem(SPEED_STORAGE_KEY));
   const defaultSpeed = Number.isFinite(legacySavedSpeed)
     ? legacySavedSpeed
-    : 250;
+    : DEFAULT_SPEED;
 
   const storedSpeed = Number(
     GM_getValue(SPEED_STORAGE_KEY, defaultSpeed)
@@ -1701,12 +1958,22 @@
 
   let speed = Number.isFinite(storedSpeed)
     ? Math.max(MIN_SPEED, Math.min(MAX_SPEED, storedSpeed))
-    : 250;
+    : DEFAULT_SPEED;
 
   function publishScrollState({ showSpeed = false } = {}) {
     document.dispatchEvent(
       new CustomEvent("rer-reader-scroll-state", {
-        detail: { scrolling, speed, showSpeed },
+        detail: {
+          available: true,
+          enabled,
+          scrolling,
+          speed,
+          mode: MODE,
+          minSpeed: MIN_SPEED,
+          maxSpeed: MAX_SPEED,
+          speedStep: SPEED_STEP,
+          showSpeed,
+        },
       })
     );
   }
@@ -1836,7 +2103,7 @@
   }
 
   async function startScroll({ useFullscreen = false } = {}) {
-    if (scrolling) return;
+    if (!enabled || scrolling) return;
 
     if (useFullscreen) {
       await enterFullscreenIfNeeded();
@@ -1855,6 +2122,8 @@
   }
 
   function toggleScroll({ useFullscreen = false } = {}) {
+    if (!enabled) return;
+
     if (scrolling) {
       stopScroll();
     } else {
@@ -1863,6 +2132,7 @@
   }
 
   function changeSpeed(delta) {
+    if (!enabled) return;
     speed = Math.max(
       MIN_SPEED,
       Math.min(MAX_SPEED, speed + delta)
@@ -1923,6 +2193,18 @@
     stopScroll();
   });
 
+  document.addEventListener("rer-reader-scroll-enabled", event => {
+    enabled = Boolean(event.detail?.enabled);
+    GM_setValue(ENABLED_STORAGE_KEY, enabled);
+
+    if (!enabled && scrolling) {
+      stopScroll();
+      return;
+    }
+
+    publishScrollState();
+  });
+
   document.addEventListener("rer-reader-speed-steps", event => {
     const steps = Number(event.detail?.steps);
     if (!Number.isFinite(steps) || steps === 0) return;
@@ -1947,6 +2229,7 @@
   }, true);
 
   document.addEventListener("keydown", event => {
+    if (!enabled) return;
     if (isTypingTarget(event.target)) return;
 
     const hasModifier =
