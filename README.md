@@ -27,6 +27,8 @@ Il remplace donc, pour cet usage, l'installation simultanée de `RER Reading Buf
 
 Avec Violentmonkey ou Tampermonkey installé, ouvre directement un lien ci-dessus puis clique sur **Installer** / **Mettre à jour**. Si le navigateur affiche seulement le code brut, utilise **Install from URL / Installer depuis une URL** dans le gestionnaire de userscripts.
 
+> **Anciennes versions de développement** — le Reader a été renommé pendant sa conception. Si ton gestionnaire contient encore un script nommé `RER Reader — Buffer + Comic Auto Scroll`, désactive-le ou supprime-le avant d'installer la version actuelle `RER Reader`. À partir de la v1.4.3, le nom et le namespace sont stabilisés et le script déclare explicitement ses URLs de téléchargement et de mise à jour.
+
 ## Installation sur Android
 
 La voie **testée et recommandée pour ce projet** est Firefox pour Android. Firefox prend officiellement en charge les extensions sur Android, contrairement à Chrome Android. D'autres navigateurs Android capables de charger des extensions peuvent éventuellement fonctionner, mais ils ne sont pas testés ici.
