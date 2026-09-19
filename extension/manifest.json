@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "RER Reader",
+  "version": "1.4.1",
+  "description": "Reader cache-first avec buffer de 5 chapitres et auto-scroll adaptatif pour comics et novels.",
+  "permissions": [
+    "storage"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "rer-reader@kiwinokoto.github.io",
+      "strict_min_version": "121.0"
+    }
+  }
+}
