@@ -331,7 +331,7 @@
   // ---------------------------------------------------------------------------
   function serializeChapter(doc, pageUrl) {
     const clone = doc.cloneNode(true);
-    clone.querySelectorAll('script, iframe, object, embed, #rer-reading-buffer-badge, #rer-reading-buffer-panel').forEach(el => el.remove());
+    clone.querySelectorAll('script, iframe, object, embed, #rer-reading-buffer-badge, #rer-reading-buffer-panel, .asr-reader-control').forEach(el => el.remove());
     const imageUrls = tagReaderImages(clone, pageUrl);
     const bodyHtml = clone.body?.innerHTML || '';
 
@@ -574,6 +574,15 @@
     history.pushState({ rerReadingBuffer: true }, '', record.url);
     document.title = record.title || document.title;
     document.body.innerHTML = record.bodyHtml;
+
+    // Les caches créés avant la v1.2 peuvent contenir une copie HTML sans
+    // événements du bouton de scroll. On la retire avant de remonter le vrai contrôle.
+    document.querySelectorAll('.asr-reader-control').forEach(el => el.remove());
+    document.querySelectorAll('.asr-icon').forEach(icon => {
+      const oldControl = icon.closest('button');
+      if (oldControl) oldControl.remove();
+    });
+
     await hydrateCachedImages();
     mountUI();
     status.problem = !navigator.onLine;
@@ -648,9 +657,8 @@
   });
 
   window.addEventListener('popstate', () => {
-    // Un retour navigateur apres une navigation offline recharge proprement la page
-    // si le reseau existe ; sinon le badge continue d'indiquer l'etat du buffer.
     updateUI();
+    if (!status.problem) scheduleBadgeFade(500);
   });
 
   // ---------------------------------------------------------------------------
@@ -1241,6 +1249,7 @@
   document.head.appendChild(style);
 
   const button = document.createElement("button");
+  button.className = "asr-reader-control";
   const icon = document.createElement("span");
   const label = document.createElement("span");
   const menuIcon = document.createElement("span");
@@ -1749,6 +1758,7 @@
     ) {
       event.preventDefault();
       event.stopPropagation();
+      if (scrolling) stopScroll();
       document.dispatchEvent(new CustomEvent("rer-reader-open-panel"));
       return;
     }
@@ -1764,6 +1774,7 @@
 
   button.addEventListener("contextmenu", (event) => {
     event.preventDefault();
+    if (scrolling) stopScroll();
     document.dispatchEvent(new CustomEvent("rer-reader-open-panel"));
   });
 
