@@ -59,11 +59,11 @@ C'est le script tout-en-un destiné à la lecture sur ordinateur et mobile :
 - la vitesse n'est affichée que pendant son réglage, puis le contrôle redevient compact ;
 - auto-scroll comics : **-1000 à 1000 px/s**, pas de **50 px/s** ;
 - auto-scroll novels : **-300 à 300 px/s**, pas de **5 px/s entre -20 et +20**, puis **10 px/s** au-delà, vitesse initiale **40 px/s** ;
-- l'activation de l'auto-scroll est mémorisée **par site et par mode** ;
+- les préférences du Reader sont mémorisées **par site** : activation, vitesse, couleur, opacité, taille, position et repères latéraux peuvent donc être différents d'un site à l'autre ;
 - pendant l'auto-scroll, le contrôle devient presque transparent après un court délai ;
-- des **repères latéraux fixes** optionnels peuvent encadrer la lecture : un unique curseur, désactivé par défaut et mémorisé par site/mode, augmente progressivement leur présence, leur largeur et leur fondu ; une ondulation fixe très discrète et quelques points lumineux renforcent le repère périphérique, toujours dans la couleur du thème ;
+- des **repères latéraux fixes** optionnels peuvent encadrer la lecture : un unique curseur, désactivé par défaut et mémorisé par site, augmente progressivement leur présence, leur largeur et leur fondu ; une ondulation fixe très discrète et quelques points lumineux renforcent le repère périphérique, toujours dans la couleur du thème ;
 - toucher ou cliquer ailleurs dans la page arrête l'auto-scroll sans bloquer l'action normale du site ;
-- le contrôle est déplaçable et sa position est mémorisée **par site et par mode de lecture** : un comic et un novel peuvent donc avoir des positions différentes ;
+- le contrôle est déplaçable et sa position est mémorisée **par site** ;
 - l'apparence est générée à partir d'une seule couleur choisie : surface en verre translucide, reflet, bordure dérivée plus sombre et texte noir ou blanc sélectionné automatiquement selon le contraste ;
 - l'opacité et la taille sont réglées par sliders ; la taille est continue de **36 à 68 px** plutôt que limitée à trois presets ;
 - sur mobile : tap = play/pause sur comics, swipe vertical = vitesse, appui long puis glisser = déplacement, appui long immobile puis relâcher = réglages ;
@@ -117,7 +117,7 @@ Version standalone du buffer. Utile si l'on ne veut **aucun auto-scroll**.
 
 Le geste tactile doit commencer sur le contrôle, mais le doigt peut ensuite sortir largement de sa surface grâce au *pointer capture*. La vitesse apparaît uniquement pendant le réglage.
 
-Le contrôleur utilise un thème « verre » dérivé automatiquement de la couleur choisie. Le Reader calcule la bordure et la couleur du texte pour conserver un contraste lisible. La position est enregistrée séparément par site et par mode de lecture.
+Le contrôleur utilise un thème « verre » dérivé automatiquement de la couleur choisie. Le Reader calcule la bordure et la couleur du texte pour conserver un contraste lisible. Les préférences d'apparence, de position et d'auto-scroll sont enregistrées séparément pour chaque site.
 
 Le panneau Reader contient aussi le switch d'auto-scroll. Le profil **comics** utilise de grands pas et une large plage de vitesses ; le profil **novels** utilise des pas fins de 5 px/s entre -20 et +20, puis 10 px/s au-delà.
 

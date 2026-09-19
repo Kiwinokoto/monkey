@@ -78,24 +78,70 @@
   let prefetchRunning = false;
   let objectUrls = [];
 
-  const READER_COLOR_KEY = 'rerReaderAccentColor';
-  const READER_IDLE_OPACITY_KEY = 'rerReaderIdleOpacity';
-  const READER_SIZE_KEY = 'rerReaderControlSize';
   const READER_MODE = COMIC_READER_URL_RE.test(location.href)
     ? 'comic'
     : NOVEL_READER_URL_RE.test(location.href)
       ? 'novel'
       : 'reader';
-  const READER_POSITION_KEY = `rerReaderControlPosition:${location.origin}:${READER_MODE}`;
-  const LEGACY_READER_POSITION_KEY = `rerReaderControlPosition:${location.origin}:reader`;
+
+  const readerSiteKey = base => `${base}:${location.origin}`;
+  const MISSING_READER_PREFERENCE = '__rer_reader_preference_missing__';
+
+  function readMigratedPreference(key, legacyKeys, fallbackValue) {
+    const currentValue = GM_getValue(key, MISSING_READER_PREFERENCE);
+    if (currentValue !== MISSING_READER_PREFERENCE) return currentValue;
+
+    for (const legacyKey of legacyKeys) {
+      if (!legacyKey) continue;
+      const legacyValue = GM_getValue(legacyKey, MISSING_READER_PREFERENCE);
+      if (legacyValue === MISSING_READER_PREFERENCE) continue;
+
+      GM_setValue(key, legacyValue);
+      return legacyValue;
+    }
+
+    return fallbackValue;
+  }
+
+  const READER_COLOR_KEY = readerSiteKey('rerReaderAccentColor');
+  const READER_IDLE_OPACITY_KEY = readerSiteKey('rerReaderIdleOpacity');
+  const READER_SIZE_KEY = readerSiteKey('rerReaderControlSize');
+  const READER_POSITION_KEY = readerSiteKey('rerReaderControlPosition');
+  const SCROLL_ENABLED_KEY = readerSiteKey('rerReaderScrollEnabled');
+  const READER_RAILS_KEY = readerSiteKey('rerReaderSideRailsLevel');
+  const SCROLL_SPEED_KEY = readerSiteKey('rerReaderScrollSpeedPxPerSecond');
+
+  const LEGACY_READER_COLOR_KEY = 'rerReaderAccentColor';
+  const LEGACY_READER_IDLE_OPACITY_KEY = 'rerReaderIdleOpacity';
+  const LEGACY_READER_SIZE_KEY = 'rerReaderControlSize';
+  const LEGACY_MODE_READER_POSITION_KEY =
+    `rerReaderControlPosition:${location.origin}:${READER_MODE}`;
+  const LEGACY_READER_POSITION_KEY =
+    `rerReaderControlPosition:${location.origin}:reader`;
   const LEGACY_SCROLL_POSITION_KEY = 'autoScrollReaderButtonPosition';
-  const SCROLL_ENABLED_KEY = `rerReaderScrollEnabled:${location.origin}:${READER_MODE}`;
-  const READER_RAILS_KEY = `rerReaderSideRailsLevel:${location.origin}:${READER_MODE}`;
-  const SCROLL_SPEED_KEY = READER_MODE === 'novel'
+  const LEGACY_SCROLL_ENABLED_KEY =
+    `rerReaderScrollEnabled:${location.origin}:${READER_MODE}`;
+  const LEGACY_READER_RAILS_KEY =
+    `rerReaderSideRailsLevel:${location.origin}:${READER_MODE}`;
+  const LEGACY_SCROLL_SPEED_KEY = READER_MODE === 'novel'
     ? 'autoScrollNovelSpeedPxPerSecond'
     : 'autoScrollReaderSpeedPxPerSecond';
+
+  const LEGACY_READER_POSITION_KEYS = [
+    LEGACY_MODE_READER_POSITION_KEY,
+    LEGACY_READER_POSITION_KEY,
+    ...(READER_MODE === 'comic' ? [LEGACY_SCROLL_POSITION_KEY] : []),
+  ];
+
   const SCROLL_DEFAULT_ENABLED = READER_MODE === 'comic';
   const SCROLL_DEFAULT_SPEED = READER_MODE === 'novel' ? 40 : 250;
+  const INITIAL_SCROLL_SPEED = Number(
+    readMigratedPreference(
+      SCROLL_SPEED_KEY,
+      [LEGACY_SCROLL_SPEED_KEY],
+      SCROLL_DEFAULT_SPEED
+    )
+  );
   const CONTROL_LONG_PRESS_MS = 450;
   const CONTROL_SWIPE_THRESHOLD_PX = 12;
   const CONTROL_SPEED_PX_PER_STEP = 32;
@@ -119,9 +165,17 @@
   let hasCustomPosition = false;
   let scrollState = {
     available: READER_MODE === 'comic' || READER_MODE === 'novel',
-    enabled: Boolean(GM_getValue(SCROLL_ENABLED_KEY, SCROLL_DEFAULT_ENABLED)),
+    enabled: Boolean(
+      readMigratedPreference(
+        SCROLL_ENABLED_KEY,
+        [LEGACY_SCROLL_ENABLED_KEY],
+        SCROLL_DEFAULT_ENABLED
+      )
+    ),
     scrolling: false,
-    speed: Number(GM_getValue(SCROLL_SPEED_KEY, SCROLL_DEFAULT_SPEED)) || SCROLL_DEFAULT_SPEED,
+    speed: Number.isFinite(INITIAL_SCROLL_SPEED)
+      ? INITIAL_SCROLL_SPEED
+      : SCROLL_DEFAULT_SPEED,
     mode: READER_MODE,
     minSpeed: READER_MODE === 'novel' ? -300 : -1000,
     maxSpeed: READER_MODE === 'novel' ? 300 : 1000,
@@ -846,7 +900,11 @@
   }
 
   function getReaderAppearance() {
-    const storedSize = GM_getValue(READER_SIZE_KEY, 47);
+    const storedSize = readMigratedPreference(
+      READER_SIZE_KEY,
+      [LEGACY_READER_SIZE_KEY],
+      47
+    );
     const legacySizes = { small: 40, normal: 47, large: 55 };
     const numericSize = Number(
       Object.prototype.hasOwnProperty.call(legacySizes, storedSize)
@@ -855,15 +913,39 @@
     );
 
     return {
-      color: normalizeHexColor(GM_getValue(READER_COLOR_KEY, '#49c6d6')),
+      color: normalizeHexColor(
+        readMigratedPreference(
+          READER_COLOR_KEY,
+          [LEGACY_READER_COLOR_KEY],
+          '#49c6d6'
+        )
+      ),
       opacity: Math.max(
         0.25,
-        Math.min(1, Number(GM_getValue(READER_IDLE_OPACITY_KEY, 0.9)) || 0.9)
+        Math.min(
+          1,
+          Number(
+            readMigratedPreference(
+              READER_IDLE_OPACITY_KEY,
+              [LEGACY_READER_IDLE_OPACITY_KEY],
+              0.9
+            )
+          ) || 0.9
+        )
       ),
       size: Math.max(36, Math.min(68, Number.isFinite(numericSize) ? numericSize : 47)),
       rails: Math.max(
         0,
-        Math.min(100, Number(GM_getValue(READER_RAILS_KEY, 0)) || 0)
+        Math.min(
+          100,
+          Number(
+            readMigratedPreference(
+              READER_RAILS_KEY,
+              [LEGACY_READER_RAILS_KEY],
+              0
+            )
+          ) || 0
+        )
       ),
     };
   }
@@ -1149,16 +1231,11 @@
   }
 
   function loadSavedControlPosition() {
-    let raw = GM_getValue(READER_POSITION_KEY, '');
-
-    if (!raw && READER_MODE === 'novel') {
-      raw = GM_getValue(LEGACY_READER_POSITION_KEY, '');
-    }
-
-    if (!raw && READER_MODE === 'comic') {
-      // Migration douce depuis la position globale du vieux scroller.
-      raw = GM_getValue(LEGACY_SCROLL_POSITION_KEY, '');
-    }
+    const raw = readMigratedPreference(
+      READER_POSITION_KEY,
+      LEGACY_READER_POSITION_KEYS,
+      ''
+    );
 
     if (!raw) return;
 
@@ -2218,11 +2295,34 @@
 
   if (!MODE) return;
 
-  const SPEED_STORAGE_KEY = MODE === "novel"
+  const siteStorageKey = base => `${base}:${location.origin}`;
+  const MISSING_SCROLL_PREFERENCE = "__rer_scroll_preference_missing__";
+
+  function readMigratedScrollPreference(key, legacyKeys, fallbackValue) {
+    const currentValue = GM_getValue(key, MISSING_SCROLL_PREFERENCE);
+    if (currentValue !== MISSING_SCROLL_PREFERENCE) return currentValue;
+
+    for (const legacyKey of legacyKeys) {
+      if (!legacyKey) continue;
+      const legacyValue = GM_getValue(legacyKey, MISSING_SCROLL_PREFERENCE);
+      if (legacyValue === MISSING_SCROLL_PREFERENCE) continue;
+
+      GM_setValue(key, legacyValue);
+      return legacyValue;
+    }
+
+    return fallbackValue;
+  }
+
+  const SPEED_STORAGE_KEY = siteStorageKey("rerReaderScrollSpeedPxPerSecond");
+  const ENABLED_STORAGE_KEY = siteStorageKey("rerReaderScrollEnabled");
+
+  const LEGACY_SPEED_STORAGE_KEY = MODE === "novel"
     ? "autoScrollNovelSpeedPxPerSecond"
     : "autoScrollReaderSpeedPxPerSecond";
+  const LEGACY_ENABLED_STORAGE_KEY =
+    `rerReaderScrollEnabled:${location.origin}:${MODE}`;
 
-  const ENABLED_STORAGE_KEY = `rerReaderScrollEnabled:${location.origin}:${MODE}`;
   const DEFAULT_ENABLED = MODE === "comic";
   const MIN_SPEED = MODE === "novel" ? -300 : -1000;
   const MAX_SPEED = MODE === "novel" ? 300 : 1000;
@@ -2230,7 +2330,11 @@
   const DEFAULT_SPEED = MODE === "novel" ? 40 : 250;
 
   let enabled = Boolean(
-    GM_getValue(ENABLED_STORAGE_KEY, DEFAULT_ENABLED)
+    readMigratedScrollPreference(
+      ENABLED_STORAGE_KEY,
+      [LEGACY_ENABLED_STORAGE_KEY],
+      DEFAULT_ENABLED
+    )
   );
   let scrolling = false;
   let rafId = null;
@@ -2245,13 +2349,20 @@
   const MAX_SCROLL_REFRESH_MS = 1000;
   const POSITION_SYNC_INTERVAL_MS = 250;
 
-  const legacySavedSpeed = Number(localStorage.getItem(SPEED_STORAGE_KEY));
-  const defaultSpeed = Number.isFinite(legacySavedSpeed)
-    ? legacySavedSpeed
+  const legacyLocalSpeedRaw = localStorage.getItem(LEGACY_SPEED_STORAGE_KEY);
+  const legacyLocalSpeed = legacyLocalSpeedRaw === null
+    ? Number.NaN
+    : Number(legacyLocalSpeedRaw);
+  const defaultSpeed = Number.isFinite(legacyLocalSpeed)
+    ? legacyLocalSpeed
     : DEFAULT_SPEED;
 
   const storedSpeed = Number(
-    GM_getValue(SPEED_STORAGE_KEY, defaultSpeed)
+    readMigratedScrollPreference(
+      SPEED_STORAGE_KEY,
+      [LEGACY_SPEED_STORAGE_KEY],
+      defaultSpeed
+    )
   );
 
   let speed = Number.isFinite(storedSpeed)

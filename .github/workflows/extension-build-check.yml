@@ -5,11 +5,13 @@ on:
     paths:
       - "RER-Reader.user.js"
       - "extension/**"
+      - "tests/**"
       - ".github/workflows/extension-build-check.yml"
   pull_request:
     paths:
       - "RER-Reader.user.js"
       - "extension/**"
+      - "tests/**"
       - ".github/workflows/extension-build-check.yml"
   workflow_dispatch:
 
@@ -29,6 +31,9 @@ jobs:
 
       - name: Validate generated JavaScript
         run: node --check extension/content.js
+
+      - name: Run Reader regression tests
+        run: node --test tests/*.test.mjs
 
       - name: Validate manifests
         run: |
