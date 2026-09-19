@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         RER Reader — Buffer + Comic Auto Scroll
+// @name         RER Reader
 // @namespace    kiwinokoto.rer-reader
-// @version      1.4.0
+// @version      1.4.1
 // @description  Reader cache-first avec buffer de 5 chapitres et auto-scroll adaptatif comics/novels sur desktop et mobile.
 // @author       Kevin + ChatGPT
 // @match        *://*/*
@@ -1916,6 +1916,11 @@
 // -----------------------------------------------------------------------------
 (() => {
   "use strict";
+
+  // Evite qu'un userscript et l'extension ne lancent deux moteurs de scroll.
+  const SCROLL_ACTIVE_ATTR = "data-rer-reader-scroll-active";
+  if (document.documentElement.hasAttribute(SCROLL_ACTIVE_ATTR)) return;
+  document.documentElement.setAttribute(SCROLL_ACTIVE_ATTR, "1");
 
   const COMIC_READER_URL_RE = /(manga|manhua|manhwa|webtoon|comic|comics|webcomic|scantrad)/i;
   const NOVEL_READER_URL_RE = /(novel|webnovel|lightnovel|light-novel|fiction|wuxia|royalroad|scribblehub)/i;
