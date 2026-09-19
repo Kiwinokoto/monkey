@@ -2,20 +2,28 @@
 
 Petite collection de userscripts de confort pour la lecture sur le Web.
 
-Les scripts sont conçus pour fonctionner avec les gestionnaires de userscripts courants, notamment **Tampermonkey** et **Violentmonkey**.
+Compatibles avec **Violentmonkey** et **Tampermonkey**.
+
+## Installation rapide
+
+Avec Violentmonkey ou Tampermonkey installé, ouvre directement l'un de ces liens dans ton navigateur puis clique sur **Installer** / **Mettre à jour** :
+
+- 📜 [Installer Auto Scroll — Manga / Manhua / Manhwa / Comics](https://raw.githubusercontent.com/Kiwinokoto/monkey/refs/heads/main/auto-scroll-comics.user.js)
+- 📖 [Installer Auto Scroll — Novels](https://raw.githubusercontent.com/Kiwinokoto/monkey/refs/heads/main/auto-scroll-novels.user.js)
+- 🚇 [Installer RER Reading Buffer](https://raw.githubusercontent.com/Kiwinokoto/monkey/refs/heads/main/RER-Reading-Buffer.user.js)
+
+Si le navigateur affiche simplement le code brut, ouvre le tableau de bord du gestionnaire de userscripts, choisis **Install from URL / Installer depuis une URL**, puis colle le même lien.
 
 ## Scripts
 
-### Auto Scroll Manga / Manhua / Comics
+### Auto Scroll — Manga / Manhua / Manhwa / Comics
 
-Fichier : `auto-scroll.js`
+Fichier : `auto-scroll-comics.user.js`
 
 Ajoute un bouton flottant pour faire défiler automatiquement les pages de manga, manhua, manhwa, webtoon et comics.
 
-Fonctions principales :
-
-- défilement vers le haut ou vers le bas ;
-- vitesse réglable de `-1000` à `1000 px/s` ;
+- vitesse : **-1000 à 1000 px/s** ;
+- pas de réglage : **50 px/s** ;
 - pause à `0 px/s` ;
 - arrêt automatique en haut ou en bas de page ;
 - bouton flottant déplaçable ;
@@ -24,35 +32,32 @@ Fonctions principales :
 
 Le script cible les URL contenant notamment `manga`, `manhua`, `manhwa`, `webtoon`, `comic`, `webcomic`, `scantrad` ou `hentai`.
 
+### Auto Scroll — Novels
+
+Fichier : `auto-scroll-novels.user.js`
+
+Même moteur d'auto-scroll, avec des réglages adaptés à une lecture de texte plus lente.
+
+- vitesse : **-300 à 100 px/s** ;
+- pas de réglage : **10 px/s** ;
+- vitesse initiale : **40 px/s** ;
+- ciblage séparé des sites de novels pour éviter d'afficher deux scrollers sur les lecteurs de comics.
+
 ### RER Reading Buffer
 
 Fichier : `RER-Reading-Buffer.user.js`
 
-Maintient un petit tampon de lecture pour continuer à lire pendant une coupure réseau courte, par exemple dans les transports.
+Maintient un tampon glissant de lecture pour continuer à lire pendant une coupure réseau courte.
 
-Fonctions principales :
+- jusqu'à **5 chapitres** en avance ;
+- réutilise immédiatement les chapitres déjà présents dans IndexedDB ;
+- ne télécharge que ce qui manque pour revenir à `5/5` ;
+- conserve le HTML et tente aussi de conserver les images lorsque le CDN l'autorise ;
+- respecte les réponses `401`, `403` et `429` ;
+- protège contre les liens « suivant » en boucle ;
+- seule la petite pastille `📚 x/5` reste visible ; les détails sont dans le panneau ouvrable au clic.
 
-- précharge jusqu'à **5 chapitres** en avance ;
-- suit le vrai lien « chapitre suivant » plutôt que de deviner les URL ;
-- télécharge les chapitres séquentiellement avec une pause entre eux ;
-- conserve le HTML dans **IndexedDB** ;
-- tente aussi de conserver les images quand le site/CDN l'autorise ;
-- permet de lire le chapitre suivant depuis le buffer hors ligne ;
-- garde le chapitre courant et le précédent, puis nettoie les anciennes entrées ;
-- s'arrête proprement sur les réponses `401`, `403` ou `429`.
-
-Le cache des images est volontairement « best effort » : certains CDN bloquent les requêtes cross-origin. Le texte/HTML reste la partie la plus fiable.
-
-## Installation
-
-1. Installer Tampermonkey ou Violentmonkey.
-2. Créer un nouveau userscript.
-3. Copier le contenu du fichier souhaité.
-4. Enregistrer et activer le script.
-
-Les scripts ne nécessitent aucun service externe propre à ce dépôt.
-
-## Commandes de l'Auto Scroll
+## Commandes des Auto Scroll
 
 | Action | Commande |
 | --- | --- |
@@ -66,9 +71,9 @@ Les raccourcis clavier sont ignorés lorsqu'un champ de saisie ou un élément i
 
 ## Compatibilité
 
-Les scripts utilisent le format standard `// ==UserScript==`. Leur compatibilité exacte dépend du navigateur, du gestionnaire de userscripts et du site visité.
+Les scripts utilisent le format standard `// ==UserScript==` et uniquement des API communes à Tampermonkey et Violentmonkey pour ces usages (`GM_getValue`, `GM_setValue` ou API Web standard).
 
-Certains sites peuvent modifier fortement leur DOM, appliquer une CSP stricte, utiliser des CDN avec CORS restrictif ou changer leurs liens de navigation. Dans ce cas, une adaptation ciblée peut être nécessaire.
+Certains sites peuvent modifier fortement leur DOM, appliquer une CSP stricte, utiliser des CDN avec CORS restrictif ou changer leurs liens de navigation. Une adaptation ciblée peut alors être nécessaire.
 
 ## Licence
 
