@@ -1,0 +1,29 @@
+name: Extension build check
+
+on:
+  push:
+    paths:
+      - "RER-Reader.user.js"
+      - "extension/**"
+      - ".github/workflows/extension-build-check.yml"
+  pull_request:
+    paths:
+      - "RER-Reader.user.js"
+      - "extension/**"
+      - ".github/workflows/extension-build-check.yml"
+
+jobs:
+  build-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rebuild extension
+        run: python extension/build_extension.py
+
+      - name: Validate manifest JSON
+        run: python -m json.tool extension/manifest.json > /dev/null
+
+      - name: Ensure generated files are committed
+        run: git diff --exit-code -- extension/content.js extension/manifest.json
