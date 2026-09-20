@@ -92,6 +92,7 @@
   const SCROLL_ENABLED_KEY = readerSiteKey("rerReaderScrollEnabled");
   const READER_RAILS_KEY = readerSiteKey("rerReaderSideRailsLevel");
   const SCROLL_SPEED_KEY = readerSiteKey("rerReaderScrollSpeedPxPerSecond");
+  const READING_PROGRESS_KEY = readerSiteKey("rerReaderReadingProgress");
   const LEGACY_READER_COLOR_KEY = "rerReaderAccentColor";
   const LEGACY_READER_IDLE_OPACITY_KEY = "rerReaderIdleOpacity";
   const LEGACY_READER_SIZE_KEY = "rerReaderControlSize";
@@ -122,6 +123,8 @@
   const BUFFER_FADE_DELAY_MS = 800;
   const SCROLL_GHOST_DELAY_MS = 900;
   const SPEED_LABEL_MS = 900;
+  const PROGRESS_SAVE_THROTTLE_MS = 750;
+  const PROGRESS_RESTORE_MAX_ATTEMPTS = 6;
   let control;
   let controlIcon;
   let controlLabel;
@@ -135,6 +138,8 @@
   let ghostTimerId = null;
   let controlGesture = null;
   let hasCustomPosition = false;
+  let progressSaveTimerId = null;
+  let restoringProgress = false;
   let scrollState = {
     available: READER_MODE === "comic" || READER_MODE === "novel",
     enabled: Boolean(
@@ -1919,12 +1924,145 @@
   function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
+  function canonicalProgressUrl() {
+    const url = new URL(location.href);
+    url.hash = "";
+    return url.href;
+  }
+  function progressCandidates() {
+    const selector = READER_MODE === "comic" ? "main img, article img, img" : "main p, article p, main li, article li, p, li";
+    return Array.from(document.querySelectorAll(selector)).filter((element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.height > 8 && rect.width > 8;
+    });
+  }
+  function anchorText(element) {
+    const raw = element instanceof HTMLImageElement ? element.alt || element.currentSrc || element.src || "" : element.textContent || "";
+    return raw.replace(/\s+/g, " ").trim().slice(0, 96);
+  }
+  function captureReadingAnchor() {
+    const candidates = progressCandidates();
+    if (!candidates.length) return null;
+    const targetY = Math.max(0, Math.min(window.innerHeight * 0.28, window.innerHeight - 1));
+    let best = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const element of candidates) {
+      const rect2 = element.getBoundingClientRect();
+      const distance = rect2.top <= targetY && rect2.bottom >= targetY ? 0 : Math.min(Math.abs(rect2.top - targetY), Math.abs(rect2.bottom - targetY));
+      if (distance < bestDistance) {
+        best = element;
+        bestDistance = distance;
+      }
+    }
+    if (!best) return null;
+    const rect = best.getBoundingClientRect();
+    return {
+      tag: best.tagName.toLowerCase(),
+      id: best.id || "",
+      text: anchorText(best),
+      index: candidates.indexOf(best),
+      offset: rect.top - targetY
+    };
+  }
+  function maximumDocumentScrollY() {
+    const scrollingElement = document.scrollingElement || document.documentElement;
+    return Math.max(0, scrollingElement.scrollHeight - window.innerHeight);
+  }
+  function saveReadingProgressNow() {
+    if (restoringProgress) return;
+    const maximum = maximumDocumentScrollY();
+    const scrollY = Math.max(0, window.scrollY);
+    const progress = {
+      version: 1,
+      url: canonicalProgressUrl(),
+      savedAt: Date.now(),
+      scrollY,
+      ratio: maximum > 0 ? Math.min(1, scrollY / maximum) : 0,
+      anchor: captureReadingAnchor()
+    };
+    GM_setValue(READING_PROGRESS_KEY, JSON.stringify(progress));
+  }
+  function scheduleReadingProgressSave() {
+    if (restoringProgress || progressSaveTimerId !== null) return;
+    progressSaveTimerId = window.setTimeout(() => {
+      progressSaveTimerId = null;
+      saveReadingProgressNow();
+    }, PROGRESS_SAVE_THROTTLE_MS);
+  }
+  function readSavedReadingProgress() {
+    const raw = GM_getValue(READING_PROGRESS_KEY, "");
+    if (!raw) return null;
+    try {
+      const progress = JSON.parse(raw);
+      if (progress?.version !== 1 || progress.url !== canonicalProgressUrl() || !Number.isFinite(progress.scrollY) || !Number.isFinite(progress.ratio)) return null;
+      return progress;
+    } catch {
+      return null;
+    }
+  }
+  function resolveReadingAnchor(anchor) {
+    if (!anchor) return null;
+    if (anchor.id) {
+      const byId = document.getElementById(anchor.id);
+      if (byId && byId.tagName.toLowerCase() === anchor.tag) return byId;
+    }
+    const candidates = progressCandidates();
+    if (anchor.text) {
+      const nearby = candidates.map((element, index) => ({ element, index, text: anchorText(element) })).filter((candidate) => candidate.text === anchor.text).sort((a, b) => Math.abs(a.index - anchor.index) - Math.abs(b.index - anchor.index));
+      if (nearby[0]) return nearby[0].element;
+    }
+    return candidates[anchor.index] || null;
+  }
+  function restoreReadingProgress(progress) {
+    const anchor = resolveReadingAnchor(progress.anchor);
+    if (anchor && progress.anchor) {
+      const targetY = Math.max(0, Math.min(window.innerHeight * 0.28, window.innerHeight - 1));
+      const rect = anchor.getBoundingClientRect();
+      window.scrollTo({
+        top: Math.max(0, window.scrollY + rect.top - targetY - progress.anchor.offset),
+        behavior: "instant"
+      });
+      return true;
+    }
+    const maximum = maximumDocumentScrollY();
+    const ratioY = maximum * Math.max(0, Math.min(1, progress.ratio));
+    const fallbackY = maximum > 0 ? ratioY : progress.scrollY;
+    window.scrollTo({ top: Math.max(0, fallbackY), behavior: "instant" });
+    return maximum > 0 || progress.scrollY === 0;
+  }
+  function restoreSavedReadingProgress() {
+    const progress = readSavedReadingProgress();
+    if (!progress || progress.scrollY <= 1) return;
+    restoringProgress = true;
+    let attempts = 0;
+    const tryRestore = () => {
+      attempts += 1;
+      const restored = restoreReadingProgress(progress);
+      if (!restored && attempts < PROGRESS_RESTORE_MAX_ATTEMPTS) {
+        window.setTimeout(tryRestore, 350 * attempts);
+        return;
+      }
+      window.setTimeout(() => {
+        restoringProgress = false;
+      }, 120);
+    };
+    requestAnimationFrame(tryRestore);
+  }
+  function installReadingProgressPersistence() {
+    window.addEventListener("scroll", scheduleReadingProgressSave, { passive: true });
+    window.addEventListener("pagehide", saveReadingProgressNow);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") saveReadingProgressNow();
+    });
+  }
   async function boot() {
     if (!isLikelyReaderPage() && !STRONG_READER_URL_RE.test(location.href)) return;
     await refreshCacheStats();
     await refreshCachedAheadStatus();
     mountUI();
     updateUI();
+    restoreSavedReadingProgress();
+    installReadingProgressPersistence();
     setTimeout(() => void prefetchAhead(), 1200);
   }
   void boot();

@@ -2,9 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-const source = ["reader-buffer.ts", "auto-scroll.ts"]
-  .map(name => fs.readFileSync(new URL(`../src/${name}`, import.meta.url), "utf8"))
-  .join("\n");
+const readerBufferSource = fs.readFileSync(new URL("../src/reader-buffer.ts", import.meta.url), "utf8");
+const autoScrollSource = fs.readFileSync(new URL("../src/auto-scroll.ts", import.meta.url), "utf8");
+const source = [readerBufferSource, autoScrollSource].join("\n");
 
 test("current Reader preferences are scoped by site, not by mode", () => {
   for (const line of [
@@ -82,7 +82,7 @@ test("smooth-scroll regressions stay guarded", () => {
   assert.ok(source.includes("new ResizeObserver(invalidateMaximumScrollY)"));
 
   const scrollHeightReads =
-    source.split("scrollingElement.scrollHeight").length - 1;
+    autoScrollSource.split("scrollingElement.scrollHeight").length - 1;
   assert.equal(scrollHeightReads, 1);
 });
   
@@ -109,4 +109,24 @@ test("size and opacity also shape the lateral rails", () => {
   const panelBlock = source.slice(panelStart, panelStart + 260);
   assert.ok(panelBlock.indexOf("sizeRow") < panelBlock.indexOf("opacityRow"));
   assert.ok(panelBlock.indexOf("opacityRow") < panelBlock.indexOf("railsRow"));
+});
+
+
+test("reading progress persists URL, semantic anchor and ratio fallback", () => {
+  assert.ok(source.includes("const READING_PROGRESS_KEY = readerSiteKey('rerReaderReadingProgress');"));
+  assert.ok(source.includes("function captureReadingAnchor()"));
+  assert.ok(source.includes("text: anchorText(best)"));
+  assert.ok(source.includes("ratio: maximum > 0 ? Math.min(1, scrollY / maximum) : 0"));
+  assert.ok(source.includes("progress.url !== canonicalProgressUrl()"));
+  assert.ok(source.includes("resolveReadingAnchor(progress.anchor)"));
+  assert.ok(source.includes("const ratioY = maximum * Math.max(0, Math.min(1, progress.ratio));"));
+});
+
+test("reading progress is restored before persistence listeners start", () => {
+  const restoreIndex = source.indexOf("restoreSavedReadingProgress();");
+  const installIndex = source.indexOf("installReadingProgressPersistence();");
+  assert.ok(restoreIndex > 0);
+  assert.ok(installIndex > restoreIndex);
+  assert.ok(source.includes("window.addEventListener('pagehide', saveReadingProgressNow);"));
+  assert.ok(source.includes("document.visibilityState === 'hidden'"));
 });

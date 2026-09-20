@@ -36,7 +36,8 @@ La migration des sources vers **TypeScript est effectuée** : les deux modules d
 - TypeScript : migration structurelle terminée ; `npm run typecheck` doit rester vert avant tout ajout V3 substantiel.
 - Build : `npm run build` régénère userscript + extensions ; ne pas éditer les artefacts générés à la main.
 - Tests : les régressions statiques lisent désormais les sources TypeScript ; la CI vérifie séparément que les artefacts générés sont à jour.
-- Prochaine priorité : **reprise de lecture robuste**, puis Screen Wake Lock.
+- Reprise de lecture robuste : implémentée sur `dev/reading-resume` avec URL canonique, ancre sémantique/élément, index de secours et ratio ; sauvegarde persistante par site hors cache. À valider CI avant promotion.
+- Prochaine priorité après validation : **Screen Wake Lock**.
 
 ## Décisions UX du panneau
 
