@@ -152,3 +152,19 @@ test("page boundaries stop auto-scroll and therefore release Wake Lock", () => {
   const stopBlock = autoScrollSource.slice(stopStart, stopStart + 650);
   assert.ok(stopBlock.includes("void syncWakeLock();"));
 });
+
+
+test("adaptive buffer uses observed bytes, hard byte budgets and storage quota guards", () => {
+  assert.ok(readerBufferSource.includes("const BUFFER_POLICIES = {"));
+  assert.ok(readerBufferSource.includes("novel: { targetChapters: 10, maxChapters: 20, byteBudget: 50 * 1024 * 1024 }"));
+  assert.ok(readerBufferSource.includes("comic: { targetChapters: 4, maxChapters: 8, byteBudget: 300 * 1024 * 1024 }"));
+  assert.ok(readerBufferSource.includes("function adaptiveChapterTarget(observedBytesPerChapter: number | null)"));
+  assert.ok(readerBufferSource.includes("async function observedChapterBytes(origin: string)"));
+  assert.ok(readerBufferSource.includes("navigator.storage?.estimate"));
+  assert.ok(readerBufferSource.includes("STORAGE_USAGE_CEILING"));
+  assert.ok(readerBufferSource.includes("STORAGE_FREE_FLOOR_BYTES"));
+  assert.ok(readerBufferSource.includes("status.cacheBytes >= bufferPolicy.byteBudget"));
+  assert.ok(readerBufferSource.includes("blob.size > remainingBytes"));
+  assert.ok(!readerBufferSource.includes("navigator.connection"));
+  assert.ok(!readerBufferSource.includes("effectiveType"));
+});

@@ -15,7 +15,13 @@ declare function GM_setValue<T>(key: string, value: T): void;
   // ---------------------------------------------------------------------------
   // Reglages simples
   // ---------------------------------------------------------------------------
-  const LOOKAHEAD = 5;                 // Passe a 3 ici si tu preferes un buffer plus petit.
+  const BUFFER_POLICIES = {
+    novel: { targetChapters: 10, maxChapters: 20, byteBudget: 50 * 1024 * 1024 },
+    comic: { targetChapters: 4, maxChapters: 8, byteBudget: 300 * 1024 * 1024 },
+    reader: { targetChapters: 5, maxChapters: 10, byteBudget: 100 * 1024 * 1024 },
+  } as const;
+  const STORAGE_FREE_FLOOR_BYTES = 64 * 1024 * 1024;
+  const STORAGE_USAGE_CEILING = 0.85;
   const FETCH_DELAY_MS = 2500;         // Pause entre deux chapitres -> pas de rafale.
   const IMAGE_DELAY_MS = 150;          // Les images sont mises en cache doucement.
   const MAX_IMAGES_PER_CHAPTER = 80;   // Protection contre les pages absurdes.
@@ -42,6 +48,26 @@ declare function GM_setValue<T>(key: string, value: T): void;
       : 'reader';
 
   const readerSiteKey = base => `${base}:${location.origin}`;
+  const bufferPolicy = BUFFER_POLICIES[READER_MODE];
+
+  function adaptiveChapterTarget(observedBytesPerChapter: number | null) {
+    if (!observedBytesPerChapter || observedBytesPerChapter <= 0) return bufferPolicy.targetChapters;
+    const budgetTarget = Math.floor(bufferPolicy.byteBudget / observedBytesPerChapter);
+    return Math.max(1, Math.min(bufferPolicy.maxChapters, budgetTarget));
+  }
+
+  async function storageAllowsWrite(additionalBytes = 0) {
+    if (!navigator.storage?.estimate) return true;
+    try {
+      const estimate = await navigator.storage.estimate();
+      if (!estimate.quota || estimate.usage == null) return true;
+      const projected = estimate.usage + Math.max(0, additionalBytes);
+      return projected / estimate.quota <= STORAGE_USAGE_CEILING
+        && estimate.quota - projected >= STORAGE_FREE_FLOOR_BYTES;
+    } catch {
+      return true;
+    }
+  }
   const MISSING_READER_PREFERENCE = '__rer_reader_preference_missing__';
 
   function readMigratedPreference(key, legacyKeys, fallbackValue) {
@@ -147,7 +173,7 @@ declare function GM_setValue<T>(key: string, value: T): void;
   };
   let status = {
     cachedAhead: 0,
-    expectedAhead: LOOKAHEAD,
+    expectedAhead: bufferPolicy.targetChapters as number,
     imageCached: 0,
     imageTotal: 0,
     cacheBytes: 0,
@@ -351,7 +377,7 @@ declare function GM_setValue<T>(key: string, value: T): void;
     return [...new Set(urls)];
   }
 
-  async function cacheImage(url, chapterUrl) {
+  async function cacheImage(url, chapterUrl, remainingBytes = Number.POSITIVE_INFINITY) {
     const existing = await dbGet('resources', url);
     if (existing) return true;
 
@@ -367,7 +393,8 @@ declare function GM_setValue<T>(key: string, value: T): void;
       if (!response.ok) return false;
 
       const blob = await response.blob();
-      if (!blob.size || blob.size > MAX_RESOURCE_BYTES) return false;
+      if (!blob.size || blob.size > MAX_RESOURCE_BYTES || blob.size > remainingBytes) return false;
+      if (!await storageAllowsWrite(blob.size)) return false;
 
       await dbPut('resources', {
         url,
@@ -384,18 +411,22 @@ declare function GM_setValue<T>(key: string, value: T): void;
     }
   }
 
-  async function cacheImagesSlowly(imageUrls, chapterUrl) {
+  async function cacheImagesSlowly(imageUrls, chapterUrl, byteBudget = Number.POSITIVE_INFINITY) {
     let cached = 0;
+    let cachedBytes = 0;
     for (const url of imageUrls) {
       if (!navigator.onLine) break;
-      if (await cacheImage(url, chapterUrl)) {
+      const before = await dbGet('resources', url);
+      if (await cacheImage(url, chapterUrl, Math.max(0, byteBudget - cachedBytes))) {
+        const after = before || await dbGet('resources', url);
+        cachedBytes += before ? 0 : (after?.bytes || 0);
         cached += 1;
         status.imageCached += 1;
       }
       updateUI();
       await sleep(IMAGE_DELAY_MS);
     }
-    return cached;
+    return { cached, bytes: cachedBytes };
   }
 
   async function hydrateCachedImages() {
@@ -479,7 +510,7 @@ declare function GM_setValue<T>(key: string, value: T): void;
     return record;
   }
 
-  async function fetchChapter(url) {
+  async function fetchChapter(url, remainingBytes = Number.POSITIVE_INFINITY) {
     let response;
     try {
       response = await fetch(url, {
@@ -510,6 +541,8 @@ declare function GM_setValue<T>(key: string, value: T): void;
 
     const doc = new DOMParser().parseFromString(html, 'text/html');
     const record = serializeChapter(doc, url);
+    if (record.bytes > remainingBytes) return { error: 'byte-budget' };
+    if (!await storageAllowsWrite(record.bytes)) return { error: 'storage-budget' };
     await dbPut('chapters', record);
     return { record };
   }
@@ -522,7 +555,7 @@ declare function GM_setValue<T>(key: string, value: T): void;
     return cached;
   }
 
-  async function collectCachedAhead(startUrl) {
+  async function collectCachedAhead(startUrl, chapterLimit: number = bufferPolicy.maxChapters) {
     const records = [];
     const seen = new Set();
     const currentUrl = absoluteUrl(location.href, location.href);
@@ -530,7 +563,7 @@ declare function GM_setValue<T>(key: string, value: T): void;
 
     let nextUrl = startUrl;
 
-    while (records.length < LOOKAHEAD && nextUrl) {
+    while (records.length < chapterLimit && nextUrl) {
       if (seen.has(nextUrl)) {
         nextUrl = null;
         break;
@@ -549,6 +582,20 @@ declare function GM_setValue<T>(key: string, value: T): void;
     return { records, nextUrl };
   }
 
+  async function observedChapterBytes(origin: string) {
+    const [chapters, resources] = await Promise.all([dbAll('chapters'), dbAll('resources')]);
+    const totals = new Map<string, number>();
+    for (const chapter of chapters) {
+      if (chapter.origin === origin) totals.set(chapter.url, chapter.bytes || 0);
+    }
+    for (const resource of resources) {
+      if (resource.origin !== origin || !totals.has(resource.chapterUrl)) continue;
+      totals.set(resource.chapterUrl, (totals.get(resource.chapterUrl) || 0) + (resource.bytes || 0));
+    }
+    const samples = [...totals.values()].filter(bytes => bytes > 0);
+    return samples.length ? samples.reduce((sum, bytes) => sum + bytes, 0) / samples.length : null;
+  }
+
   async function refreshCachedAheadStatus() {
     const nextUrl = findNextUrl(document, location.href);
     if (!nextUrl) {
@@ -556,7 +603,10 @@ declare function GM_setValue<T>(key: string, value: T): void;
       return;
     }
 
-    const { records } = await collectCachedAhead(nextUrl);
+    const averageBytes = await observedChapterBytes(location.origin);
+    const target = adaptiveChapterTarget(averageBytes);
+    status.expectedAhead = target;
+    const { records } = await collectCachedAhead(nextUrl, target);
     status.cachedAhead = records.length;
   }
 
@@ -583,7 +633,10 @@ declare function GM_setValue<T>(key: string, value: T): void;
       const keep = new Set([current.url]);
       if (current.prevUrl) keep.add(current.prevUrl);
 
-      const cached = await collectCachedAhead(current.nextUrl);
+      const averageBytes = await observedChapterBytes(location.origin);
+      const targetChapters = adaptiveChapterTarget(averageBytes);
+      status.expectedAhead = targetChapters;
+      const cached = await collectCachedAhead(current.nextUrl, targetChapters);
       for (const record of cached.records) keep.add(record.url);
 
       const seen = new Set(keep);
@@ -591,13 +644,14 @@ declare function GM_setValue<T>(key: string, value: T): void;
       let nextUrl = cached.nextUrl;
       const chaptersToImageCache = [];
       let networkFetches = 0;
+      let limitMessage = '';
 
       status.message = status.cachedAhead
-        ? `${status.cachedAhead}/${LOOKAHEAD} déjà en cache — complément…`
+        ? `${status.cachedAhead}/${targetChapters} déjà en cache — complément…`
         : 'Préchargement…';
       updateUI();
 
-      while (status.cachedAhead < LOOKAHEAD && nextUrl) {
+      while (status.cachedAhead < targetChapters && status.cachedAhead < bufferPolicy.maxChapters && nextUrl) {
         if (!navigator.onLine) break;
 
         if (seen.has(nextUrl)) {
@@ -610,12 +664,29 @@ declare function GM_setValue<T>(key: string, value: T): void;
 
         seen.add(nextUrl);
 
+        await refreshCacheStats();
+        if (status.cacheBytes >= bufferPolicy.byteBudget) {
+          limitMessage = 'Budget local atteint — buffer conservé';
+          break;
+        }
+        if (!await storageAllowsWrite()) {
+          limitMessage = 'Espace de stockage protégé — buffer conservé';
+          break;
+        }
+
         if (networkFetches > 0) await sleep(FETCH_DELAY_MS);
 
-        const result = await fetchChapter(nextUrl);
+        const result = await fetchChapter(nextUrl, Math.max(0, bufferPolicy.byteBudget - status.cacheBytes));
         networkFetches += 1;
 
         if (result.error) {
+          if (result.error === 'byte-budget' || result.error === 'storage-budget') {
+            status.problem = false;
+            limitMessage = result.error === 'byte-budget'
+              ? 'Budget local atteint — buffer conservé'
+              : 'Espace de stockage protégé — buffer conservé';
+            break;
+          }
           status.problem = true;
           if (result.error === 'rate-limit') {
             status.message = result.retryAfter
@@ -640,16 +711,19 @@ declare function GM_setValue<T>(key: string, value: T): void;
       }
 
       status.problem = false;
-      status.message = status.cachedAhead
-        ? `${status.cachedAhead}/${LOOKAHEAD} chapitre${status.cachedAhead > 1 ? 's' : ''} prêt${status.cachedAhead > 1 ? 's' : ''}`
-        : 'Aucun chapitre en avance';
+      status.message = limitMessage || (status.cachedAhead
+        ? `${status.cachedAhead}/${status.expectedAhead} chapitre${status.cachedAhead > 1 ? 's' : ''} prêt${status.cachedAhead > 1 ? 's' : ''}`
+        : 'Aucun chapitre en avance');
       updateUI();
       scheduleBufferFade();
 
       // Les chapitres sont déjà prêts : les images peuvent continuer doucement
       // sans garder le contrôleur affiché pendant toute leur mise en cache.
       for (const chapter of chaptersToImageCache) {
-        await cacheImagesSlowly(chapter.imageUrls, chapter.url);
+        await refreshCacheStats();
+        const remainingBytes = Math.max(0, bufferPolicy.byteBudget - status.cacheBytes);
+        if (remainingBytes <= 0 || !await storageAllowsWrite()) break;
+        await cacheImagesSlowly(chapter.imageUrls, chapter.url, remainingBytes);
       }
 
       await pruneOrigin(location.origin, keep);
@@ -1124,14 +1198,14 @@ declare function GM_setValue<T>(key: string, value: T): void;
     let description = 'Reader';
 
     if (status.problem) {
-      setControlContent('⚠', `📚 ${status.cachedAhead}/${LOOKAHEAD}`, true);
-      description = `Problème Reader. Buffer ${status.cachedAhead} sur ${LOOKAHEAD}. ${status.message}`;
+      setControlContent('⚠', `📚 ${status.cachedAhead}/${status.expectedAhead}`, true);
+      description = `Problème Reader. Buffer ${status.cachedAhead} sur ${status.expectedAhead}. ${status.message}`;
     } else if (speedVisible) {
       setControlContent('↕', `${scrollState.speed} px/s`, true);
       description = `Vitesse de défilement ${scrollState.speed} pixels par seconde`;
     } else if (bufferVisible) {
-      setControlContent('📚', `${status.cachedAhead}/${LOOKAHEAD}`, true);
-      description = `Buffer ${status.cachedAhead} sur ${LOOKAHEAD}. ${status.message}`;
+      setControlContent('📚', `${status.cachedAhead}/${status.expectedAhead}`, true);
+      description = `Buffer ${status.cachedAhead} sur ${status.expectedAhead}. ${status.message}`;
     } else if (scrollState.available && scrollState.enabled) {
       setControlContent(scrollState.scrolling ? 'pause' : 'play', '', false);
       description = scrollState.scrolling
@@ -1182,7 +1256,7 @@ declare function GM_setValue<T>(key: string, value: T): void;
     const info = panel.querySelector('.rer-status');
     if (info) {
       const parts = [
-        `📚 ${status.cachedAhead}/${LOOKAHEAD}`,
+        `📚 ${status.cachedAhead}/${status.expectedAhead}`,
         navigator.onLine ? 'Réseau OK' : 'Hors ligne · cache',
       ];
       if (status.problem && status.message) parts.push(status.message);
