@@ -41,6 +41,22 @@ La migration des sources vers **TypeScript est effectuée** : les deux modules d
 - Buffer adaptatif : **implémenté**. La cible varie à partir de la taille réellement observée par chapitre, sous budget en octets et plafond de chapitres ; `navigator.storage.estimate()` protège en plus le quota quand disponible. Aucun signal de qualité réseau n'est utilisé comme prédiction.
 - Prochaine priorité : validation terrain du buffer sur novels/comics desktop + mobile, puis **Focus Mode** si les mesures restent cohérentes.
 
+## Piste d'architecture UI — Shadow DOM
+
+À étudier lors d'une future passe de hardening UI, sans refactor immédiat : encapsuler le bouton/panneau Reader dans un **Shadow DOM** afin d'isoler nativement ses styles de ceux des sites lus, et réciproquement.
+
+Intérêt :
+- éviter les collisions CSS avec les pages hôtes sans multiplier les préfixes/classes défensives ;
+- réduire les régressions quand un site définit des règles globales agressives (`button`, `input`, `*`, etc.) ;
+- conserver un composant injecté léger, contrairement à un iframe plus isolé mais plus lourd.
+
+Contraintes :
+- ce n'est pas une sandbox de sécurité ; le JavaScript de la page et celui du Reader restent dans le même contexte général ;
+- prévoir explicitement le theming, les propriétés CSS héritées et les événements qui traversent la frontière ;
+- ne faire cette migration que si elle simplifie réellement la maintenance et après tests userscript + WebExtension Firefox/Chromium.
+
+Le projet GPT Skins sert actuellement de petit terrain d'essai concret pour cette approche.
+
 ## Décisions UX du panneau
 
 - la croix de fermeture est supprimée : un clic hors du panneau, y compris sur le bouton Reader, ferme déjà le panneau ;
