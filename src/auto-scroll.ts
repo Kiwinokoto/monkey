@@ -73,6 +73,8 @@ declare function GM_setValue<T>(key: string, value: T): void;
   let maximumScrollYDirty = true;
   let lastMaximumScrollRefresh = 0;
   let lastPositionSyncTimestamp = 0;
+  let wakeLock: WakeLockSentinel | null = null;
+  let wakeLockRequestPending = false;
 
   const MAX_SCROLL_REFRESH_MS = 1000;
   const POSITION_SYNC_INTERVAL_MS = 250;
@@ -189,8 +191,53 @@ declare function GM_setValue<T>(key: string, value: T): void;
     }
   }
 
+  function shouldHoldWakeLock() {
+    return scrolling && speed !== 0 && document.visibilityState === "visible";
+  }
+
+  async function releaseWakeLock() {
+    const currentWakeLock = wakeLock;
+    wakeLock = null;
+    if (!currentWakeLock) return;
+
+    try {
+      await currentWakeLock.release();
+    } catch {
+      // The browser may already have released it while hiding the page.
+    }
+  }
+
+  async function syncWakeLock() {
+    if (!shouldHoldWakeLock()) {
+      await releaseWakeLock();
+      return;
+    }
+
+    if (wakeLock || wakeLockRequestPending || !("wakeLock" in navigator)) return;
+
+    wakeLockRequestPending = true;
+    try {
+      const requestedWakeLock = await navigator.wakeLock.request("screen");
+
+      if (!shouldHoldWakeLock()) {
+        await requestedWakeLock.release();
+        return;
+      }
+
+      wakeLock = requestedWakeLock;
+      requestedWakeLock.addEventListener("release", () => {
+        if (wakeLock === requestedWakeLock) wakeLock = null;
+      }, { once: true });
+    } catch {
+      // Wake Lock is optional and may be denied by the browser or OS.
+    } finally {
+      wakeLockRequestPending = false;
+    }
+  }
+
   function stopScroll() {
     if (!scrolling && rafId === null) {
+      void syncWakeLock();
       publishScrollState();
       return;
     }
@@ -206,6 +253,7 @@ declare function GM_setValue<T>(key: string, value: T): void;
       rafId = null;
     }
 
+    void syncWakeLock();
     publishScrollState();
   }
 
@@ -293,6 +341,7 @@ declare function GM_setValue<T>(key: string, value: T): void;
       rafId = requestAnimationFrame(scrollStep);
     }
 
+    void syncWakeLock();
     publishScrollState();
   }
 
@@ -357,6 +406,7 @@ declare function GM_setValue<T>(key: string, value: T): void;
       }
     }
 
+    void syncWakeLock();
     publishScrollState({ showSpeed: true });
   }
 
@@ -407,6 +457,14 @@ declare function GM_setValue<T>(key: string, value: T): void;
     const steps = Number((event as CustomEvent).detail?.steps);
     if (!Number.isFinite(steps) || steps === 0) return;
     changeSpeedSteps(steps);
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    void syncWakeLock();
+  });
+
+  window.addEventListener("pagehide", () => {
+    void releaseWakeLock();
   });
 
   // Toute interaction avec la page rend immédiatement la main à l'utilisateur.

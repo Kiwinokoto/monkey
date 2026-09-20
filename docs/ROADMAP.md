@@ -37,7 +37,8 @@ La migration des sources vers **TypeScript est effectuée** : les deux modules d
 - Build : `npm run build` régénère userscript + extensions ; ne pas éditer les artefacts générés à la main.
 - Tests : les régressions statiques lisent désormais les sources TypeScript ; la CI vérifie séparément que les artefacts générés sont à jour.
 - Reprise de lecture robuste : **terminée et validée CI**. La progression persistante est séparée du cache et conserve URL canonique, ancre sémantique/élément, index de secours, offset et ratio. La restauration ne s’applique qu’à la même URL de chapitre.
-- Prochaine priorité : **Screen Wake Lock**, avec tests de libération en pause/vitesse zéro/limites/onglet masqué/sortie.
+- Screen Wake Lock : **implémenté en v1.5.1**. Actif uniquement pendant un auto-scroll réellement actif à vitesse non nulle ; libéré sur pause, vitesse zéro, limite de page, onglet masqué et sortie ; réacquis au retour visible si la lecture continue.
+- Prochaine priorité : **buffer adaptatif** (taille observée, budgets en octets, quota de stockage, plafonds de chapitres), sans utiliser la qualité réseau instantanée comme prédiction.
 
 ## Décisions UX du panneau
 

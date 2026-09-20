@@ -130,3 +130,25 @@ test("reading progress is restored before persistence listeners start", () => {
   assert.ok(source.includes("window.addEventListener('pagehide', saveReadingProgressNow);"));
   assert.ok(source.includes("document.visibilityState === 'hidden'"));
 });
+
+test("screen Wake Lock follows active non-zero auto-scroll", () => {
+  assert.ok(autoScrollSource.includes('return scrolling && speed !== 0 && document.visibilityState === "visible";'));
+  assert.ok(autoScrollSource.includes('navigator.wakeLock.request("screen")'));
+  assert.ok(autoScrollSource.includes('void syncWakeLock();'));
+  assert.ok(autoScrollSource.includes('document.addEventListener("visibilitychange"'));
+  assert.ok(autoScrollSource.includes('window.addEventListener("pagehide"'));
+  assert.ok(autoScrollSource.includes('await currentWakeLock.release();'));
+});
+
+test("page boundaries stop auto-scroll and therefore release Wake Lock", () => {
+  assert.ok(autoScrollSource.includes("if (reachedBottom || reachedTop)"));
+  const boundaryBlock = autoScrollSource.slice(
+    autoScrollSource.indexOf("if (reachedBottom || reachedTop)"),
+    autoScrollSource.indexOf("if (reachedBottom || reachedTop)") + 120
+  );
+  assert.ok(boundaryBlock.includes("stopScroll();"));
+
+  const stopStart = autoScrollSource.indexOf("function stopScroll()");
+  const stopBlock = autoScrollSource.slice(stopStart, stopStart + 650);
+  assert.ok(stopBlock.includes("void syncWakeLock();"));
+});

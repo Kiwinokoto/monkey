@@ -2116,6 +2116,8 @@
   let maximumScrollYDirty = true;
   let lastMaximumScrollRefresh = 0;
   let lastPositionSyncTimestamp = 0;
+  let wakeLock = null;
+  let wakeLockRequestPending = false;
   const MAX_SCROLL_REFRESH_MS = 1e3;
   const POSITION_SYNC_INTERVAL_MS = 250;
   const legacyLocalSpeedRaw = localStorage.getItem(LEGACY_SPEED_STORAGE_KEY);
@@ -2199,8 +2201,43 @@
     } catch {
     }
   }
+  function shouldHoldWakeLock() {
+    return scrolling && speed !== 0 && document.visibilityState === "visible";
+  }
+  async function releaseWakeLock() {
+    const currentWakeLock = wakeLock;
+    wakeLock = null;
+    if (!currentWakeLock) return;
+    try {
+      await currentWakeLock.release();
+    } catch {
+    }
+  }
+  async function syncWakeLock() {
+    if (!shouldHoldWakeLock()) {
+      await releaseWakeLock();
+      return;
+    }
+    if (wakeLock || wakeLockRequestPending || !("wakeLock" in navigator)) return;
+    wakeLockRequestPending = true;
+    try {
+      const requestedWakeLock = await navigator.wakeLock.request("screen");
+      if (!shouldHoldWakeLock()) {
+        await requestedWakeLock.release();
+        return;
+      }
+      wakeLock = requestedWakeLock;
+      requestedWakeLock.addEventListener("release", () => {
+        if (wakeLock === requestedWakeLock) wakeLock = null;
+      }, { once: true });
+    } catch {
+    } finally {
+      wakeLockRequestPending = false;
+    }
+  }
   function stopScroll() {
     if (!scrolling && rafId === null) {
+      void syncWakeLock();
       publishScrollState();
       return;
     }
@@ -2213,6 +2250,7 @@
       cancelAnimationFrame(rafId);
       rafId = null;
     }
+    void syncWakeLock();
     publishScrollState();
   }
   function scrollStep(timestamp) {
@@ -2271,6 +2309,7 @@
       document.documentElement.classList.add("asr-scrolling");
       rafId = requestAnimationFrame(scrollStep);
     }
+    void syncWakeLock();
     publishScrollState();
   }
   function toggleScroll({ useFullscreen = false } = {}) {
@@ -2322,6 +2361,7 @@
         }
       }
     }
+    void syncWakeLock();
     publishScrollState({ showSpeed: true });
   }
   function isTypingTarget(element) {
@@ -2360,6 +2400,12 @@
     const steps = Number(event.detail?.steps);
     if (!Number.isFinite(steps) || steps === 0) return;
     changeSpeedSteps(steps);
+  });
+  document.addEventListener("visibilitychange", () => {
+    void syncWakeLock();
+  });
+  window.addEventListener("pagehide", () => {
+    void releaseWakeLock();
   });
   document.addEventListener("pointerdown", (event) => {
     if (!scrolling) return;
