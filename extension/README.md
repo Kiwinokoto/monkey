@@ -95,6 +95,12 @@ After building:
 Chrome Android does not provide the normal desktop extension installation
 model; the Chrome package is intended for desktop Chromium-based browsers.
 
+## Updates
+
+Development installs are manual: a Chromium extension loaded with **Load unpacked** and a Firefox temporary add-on do not fetch new builds from GitHub automatically. Rebuild/reload them when testing a new version.
+
+Once the signed extension is published through Chrome Web Store and Firefox AMO, normal store installations are intended to receive browser-managed updates automatically. The userscript is already a separate auto-update channel: its metadata points `@updateURL` / `@downloadURL` at the `main` branch and its `@version` is bumped for each published update.
+
 ## Privacy and permissions
 
 The extension currently injects on HTTP/HTTPS pages and immediately no-ops on
