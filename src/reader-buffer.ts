@@ -764,20 +764,27 @@ declare function GM_setValue<T>(key: string, value: T): void;
   async function pruneOrigin(origin, keepUrls) {
     const chapters = await dbAll('chapters');
     const expiry = Date.now() - CACHE_TTL_DAYS * 24 * 60 * 60 * 1000;
+    const staleChapterUrls = new Set();
 
+    // The cache is shared by every tab on an origin. Never interpret this
+    // tab's keep-window as ownership of the whole origin: doing so lets manga
+    // A delete manga B's valid buffer (and vice versa). Routine pruning is
+    // therefore expiry-only. Capacity is enforced independently by the byte
+    // budget/storage guards before writes.
     for (const chapter of chapters) {
-      if (chapter.origin !== origin) continue;
-      const stale = chapter.savedAt < expiry;
-      const outsideWindow = !keepUrls.has(chapter.url);
-      if (stale || outsideWindow) await dbDelete('chapters', chapter.url);
+      if (chapter.origin !== origin || keepUrls.has(chapter.url)) continue;
+      if (chapter.savedAt < expiry) {
+        staleChapterUrls.add(chapter.url);
+        await dbDelete('chapters', chapter.url);
+      }
     }
 
     const resources = await dbAll('resources');
     for (const resource of resources) {
-      if (resource.origin !== origin) continue;
-      const stale = resource.savedAt < expiry;
-      const outsideWindow = !keepUrls.has(resource.chapterUrl);
-      if (stale || outsideWindow) await dbDelete('resources', resource.url);
+      if (resource.origin !== origin || keepUrls.has(resource.chapterUrl)) continue;
+      if (resource.savedAt < expiry || staleChapterUrls.has(resource.chapterUrl)) {
+        await dbDelete('resources', resource.url);
+      }
     }
   }
 

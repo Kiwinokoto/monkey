@@ -179,3 +179,14 @@ test("homepage/catalogue pages cannot start the reading buffer from loose chapte
   assert.ok(!readerBufferSource.includes("if (nextUrl && prevUrl) return true;"));
   assert.ok(readerBufferSource.includes("return hasReaderRoot && READING_PATH_RE.test(pathname);"));
 });
+
+
+test("origin pruning is tab-safe and does not evict another manga's valid buffer", () => {
+  assert.ok(readerBufferSource.includes("const staleChapterUrls = new Set();"));
+  assert.ok(readerBufferSource.includes("if (chapter.origin !== origin || keepUrls.has(chapter.url)) continue;"));
+  assert.ok(readerBufferSource.includes("if (chapter.savedAt < expiry) {"));
+  assert.ok(readerBufferSource.includes("if (resource.origin !== origin || keepUrls.has(resource.chapterUrl)) continue;"));
+  assert.ok(readerBufferSource.includes("resource.savedAt < expiry || staleChapterUrls.has(resource.chapterUrl)"));
+  assert.ok(!readerBufferSource.includes("const outsideWindow = !keepUrls.has(chapter.url)"));
+  assert.ok(!readerBufferSource.includes("stale || outsideWindow"));
+});
