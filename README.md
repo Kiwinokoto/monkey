@@ -27,6 +27,14 @@ Avec Violentmonkey ou Tampermonkey installé, ouvre le lien du Reader puis cliqu
 
 > **Anciennes versions de développement** — le Reader a été renommé pendant sa conception. Si ton gestionnaire contient encore un script nommé `RER Reader — Buffer + Comic Auto Scroll`, désactive-le ou supprime-le avant d'installer la version actuelle `RER Reader`. À partir de la v1.4.3, le nom et le namespace sont stabilisés et le script déclare explicitement ses URLs de téléchargement et de mise à jour.
 
+### Mises à jour automatiques
+
+Le userscript publié sur `main` déclare `@downloadURL` et `@updateURL` vers son URL GitHub brute. Tampermonkey et Violentmonkey peuvent donc vérifier périodiquement cette URL et installer automatiquement une version plus récente lorsque le champ `@version` augmente. Une vérification manuelle des mises à jour reste possible depuis le gestionnaire de userscripts.
+
+La version courante est **1.6.1**. Cette incrémentation de version est volontaire : sans changement de `@version`, un gestionnaire de userscripts peut considérer qu'un fichier modifié sur GitHub n'est pas une nouvelle version et ne pas le proposer automatiquement.
+
+Les WebExtensions chargées manuellement en développement (`Load unpacked` / add-on temporaire Firefox) ne se mettent pas à jour depuis GitHub toutes seules. Une future installation depuis Chrome Web Store ou Firefox AMO recevra au contraire les mises à jour gérées par le navigateur/store, comme une extension normale.
+
 ## Installation sur Android
 
 La voie **testée et recommandée pour ce projet** est Firefox pour Android. Firefox prend officiellement en charge les extensions sur Android, contrairement à Chrome Android. D'autres navigateurs Android capables de charger des extensions peuvent éventuellement fonctionner, mais ils ne sont pas testés ici.
