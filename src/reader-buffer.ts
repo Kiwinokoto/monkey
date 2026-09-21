@@ -150,7 +150,12 @@ declare function GM_setValue<T>(key: string, value: T): void;
   let ghostTimerId = null;
   let controlGesture = null;
   let hasCustomPosition = false;
-  let controlAnchor = 'right';
+  let controlAnchor: 'left' | 'right' = 'right';
+  let desiredControlPosition: {
+    horizontalAnchor: 'left' | 'right';
+    offset: number;
+    top: number;
+  } | null = null;
   let progressSaveTimerId: number | null = null;
   let restoringProgress = false;
   let scrollState = {
@@ -1337,13 +1342,14 @@ declare function GM_setValue<T>(key: string, value: T): void;
     applyControlAnchorClass();
 
     if (save) {
+      desiredControlPosition = {
+        horizontalAnchor: controlAnchor,
+        offset: Math.round(clampedOffset),
+        top: Math.round(clampedTop),
+      };
       GM_setValue(
         READER_POSITION_KEY,
-        JSON.stringify({
-          horizontalAnchor: controlAnchor,
-          offset: Math.round(clampedOffset),
-          top: Math.round(clampedTop),
-        })
+        JSON.stringify(desiredControlPosition)
       );
     }
 
@@ -1378,14 +1384,14 @@ declare function GM_setValue<T>(key: string, value: T): void;
     applyAnchoredControlPosition(anchor, offset, rect.top, save);
   }
 
-  function clampControlToViewport({ persist = false } = {}) {
-    if (!control || !hasCustomPosition) return;
+  function clampControlToViewport() {
+    if (!control || !hasCustomPosition || !desiredControlPosition) return;
 
-    const rect = control.getBoundingClientRect();
-    const offset = controlAnchor === 'left'
-      ? rect.left
-      : window.innerWidth - rect.right;
-    applyAnchoredControlPosition(controlAnchor, offset, rect.top, persist);
+    applyAnchoredControlPosition(
+      desiredControlPosition.horizontalAnchor,
+      desiredControlPosition.offset,
+      desiredControlPosition.top
+    );
   }
 
   function loadSavedControlPosition() {
@@ -1407,10 +1413,15 @@ declare function GM_setValue<T>(key: string, value: T): void;
         Number.isFinite(position.offset) &&
         Number.isFinite(position.top)
       ) {
+        desiredControlPosition = {
+          horizontalAnchor: position.horizontalAnchor,
+          offset: Number(position.offset),
+          top: Number(position.top),
+        };
         applyAnchoredControlPosition(
-          position.horizontalAnchor,
-          position.offset,
-          position.top
+          desiredControlPosition.horizontalAnchor,
+          desiredControlPosition.offset,
+          desiredControlPosition.top
         );
         return;
       }
@@ -2435,7 +2446,7 @@ declare function GM_setValue<T>(key: string, value: T): void;
 
   window.addEventListener('resize', () => {
     if (hasCustomPosition && control) {
-      requestAnimationFrame(() => clampControlToViewport({ persist: true }));
+      requestAnimationFrame(() => clampControlToViewport());
     }
     if (panel && !panel.hidden) positionPanelNearControl();
   });

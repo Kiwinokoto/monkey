@@ -193,10 +193,15 @@ test("origin pruning is tab-safe and does not evict another manga's valid buffer
 
 
 test("Reader control uses CSS edge anchoring and an internal label morph", () => {
-  assert.ok(readerBufferSource.includes("let controlAnchor = 'right';"));
+  assert.ok(readerBufferSource.includes("let controlAnchor: 'left' | 'right' = 'right';"));
+  assert.ok(readerBufferSource.includes("let desiredControlPosition:"));
   assert.ok(readerBufferSource.includes("function applyAnchoredControlPosition(anchor, offset, top, save = false)"));
   assert.ok(readerBufferSource.includes("horizontalAnchor: controlAnchor"));
+  assert.ok(readerBufferSource.includes("JSON.stringify(desiredControlPosition)"));
   assert.ok(readerBufferSource.includes("control.style[controlAnchor]"));
+  assert.ok(readerBufferSource.includes("desiredControlPosition.horizontalAnchor"));
+  assert.ok(readerBufferSource.includes("requestAnimationFrame(() => clampControlToViewport());"));
+  assert.ok(!readerBufferSource.includes("clampControlToViewport({ persist: true })"));
   assert.ok(readerBufferSource.includes("anchorControlToNearestEdge(true);"));
   assert.ok(readerBufferSource.includes("max-width: 112px;"));
   assert.ok(readerBufferSource.includes("max-width 220ms ease"));
