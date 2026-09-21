@@ -162,6 +162,7 @@
   let ghostTimerId = null;
   let controlGesture = null;
   let hasCustomPosition = false;
+  let controlAnchor = "right";
   let progressSaveTimerId = null;
   let restoringProgress = false;
   let scrollState = {
@@ -992,8 +993,28 @@
     }
     return null;
   }
+  function syncControlAnchor() {
+    if (!control) return;
+    const rect = control.getBoundingClientRect();
+    controlAnchor = rect.left + rect.width / 2 <= window.innerWidth / 2 ? "left" : "right";
+    control.classList.toggle("rr-anchor-left", controlAnchor === "left");
+    control.classList.toggle("rr-anchor-right", controlAnchor === "right");
+  }
+  function preserveControlAnchorDuringResize(previousRect) {
+    if (!control || !previousRect) return;
+    if (hasCustomPosition) {
+      const bottom = Number.parseFloat(control.style.bottom);
+      if (!Number.isFinite(bottom)) return;
+      const width = control.getBoundingClientRect().width;
+      const left = controlAnchor === "right" ? previousRect.right - width : previousRect.left;
+      applyControlPosition(left, bottom);
+    }
+    if (panel && !panel.hidden) requestAnimationFrame(positionPanelNearControl);
+  }
   function setControlContent(iconValue, labelText, expanded) {
     if (!control || !controlIcon || !controlLabel) return;
+    const previousRect = control.getBoundingClientRect();
+    syncControlAnchor();
     controlIcon.replaceChildren();
     const mediaIcon = iconValue === "play" || iconValue === "pause" ? createMediaIcon(iconValue) : null;
     if (mediaIcon) {
@@ -1004,6 +1025,7 @@
     controlLabel.textContent = labelText || "";
     control.classList.toggle("rr-expanded", Boolean(expanded));
     control.classList.toggle("rr-compact", !expanded);
+    requestAnimationFrame(() => preserveControlAnchorDuringResize(previousRect));
   }
   function renderControl() {
     if (!control) return;
@@ -1088,6 +1110,7 @@
     control.style.top = "auto";
     control.style.bottom = `${clampedBottom}px`;
     hasCustomPosition = true;
+    syncControlAnchor();
     if (save) {
       GM_setValue(
         READER_POSITION_KEY,
@@ -1687,6 +1710,16 @@
       #rer-reader-control.rr-expanded {
         width: auto;
         min-width: calc(var(--rr-size, 47px) + 38px);
+      }
+
+      /* One pill morphs between status and compact control. When the user has
+         placed it, width changes preserve the nearest screen-edge anchor. */
+      #rer-reader-control.rr-anchor-left {
+        transform-origin: left center;
+      }
+
+      #rer-reader-control.rr-anchor-right {
+        transform-origin: right center;
       }
 
       #rer-reader-control.rr-hidden {

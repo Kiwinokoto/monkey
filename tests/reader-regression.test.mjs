@@ -190,3 +190,14 @@ test("origin pruning is tab-safe and does not evict another manga's valid buffer
   assert.ok(!readerBufferSource.includes("const outsideWindow = !keepUrls.has(chapter.url)"));
   assert.ok(!readerBufferSource.includes("stale || outsideWindow"));
 });
+
+
+test("Reader control keeps a stable nearest-edge anchor while morphing", () => {
+  assert.ok(readerBufferSource.includes("let controlAnchor = 'right';"));
+  assert.ok(readerBufferSource.includes("function syncControlAnchor()"));
+  assert.ok(readerBufferSource.includes("function preserveControlAnchorDuringResize(previousRect)"));
+  assert.ok(readerBufferSource.includes("previousRect.right - width"));
+  assert.ok(readerBufferSource.includes("requestAnimationFrame(() => preserveControlAnchorDuringResize(previousRect))"));
+  assert.ok(readerBufferSource.includes("rr-anchor-left"));
+  assert.ok(readerBufferSource.includes("rr-anchor-right"));
+});
