@@ -31,7 +31,8 @@ declare function GM_setValue<T>(key: string, value: T): void;
   const DB_VERSION = 1;
 
   const READER_URL_RE = /(manga|manhwa|manhua|webtoon|comic|webcomic|scantrad|novel|webnovel|lightnovel|fiction|wuxia|chapter|chapitre|reader|read)/i;
-  const STRONG_READER_URL_RE = /(manga|manhwa|manhua|webtoon|comic|webcomic|scantrad|novel|webnovel|lightnovel|light-novel|fiction|wuxia|royalroad|scribblehub|chapter|chapitre|reader)/i;
+  const READING_PATH_RE = /(?:^|[\/_-])(chapter|chapitre|episode|reader|read)(?:[\/_-]|\d|$)/i;
+  const READING_ROOT_SELECTOR = '#chapter-content, .chapter-content, .chapter_content, #readerarea, #reader-area, .reader-area, .reading-content, .chapter-reading-content';
   const COMIC_READER_URL_RE = /(manga|manhua|manhwa|webtoon|comic|comics|webcomic|scantrad)/i;
   const NOVEL_READER_URL_RE = /(novel|webnovel|lightnovel|light-novel|fiction|wuxia|royalroad|scribblehub)/i;
   const NEXT_TEXT_RE = /^(?:next(?:\s+chapter)?|chapter\s+next|chapitre\s+suivant|suivant|next\s*[›»→]?|[›»→])$/i;
@@ -330,10 +331,21 @@ declare function GM_setValue<T>(key: string, value: T): void;
   const findPrevUrl = (doc, baseUrl) => findDirectionalUrl(doc, baseUrl, 'prev');
 
   function isLikelyReaderPage(doc = document, url = location.href) {
-    if (READER_URL_RE.test(url) && findNextUrl(doc, url)) return true;
+    const nextUrl = findNextUrl(doc, url);
+    const prevUrl = findPrevUrl(doc, url);
+    const pathname = (() => {
+      try { return new URL(url, location.href).pathname; } catch { return ''; }
+    })();
+    const hasReaderRoot = Boolean(doc.querySelector(READING_ROOT_SELECTOR));
 
-    const text = doc.body?.innerText?.slice(0, 8000) || '';
-    return Boolean(findNextUrl(doc, url) && /chapter|chapitre|manga|manhwa|manhua|webtoon|comic|webcomic|novel|webnovel|lightnovel|fiction|wuxia/i.test(text));
+    // Directional chapter navigation is the strongest generic signal. A site
+    // homepage may contain hundreds of chapter links, but it must not become a
+    // reader merely because one of those links happens to score as "next".
+    if ((nextUrl || prevUrl) && (hasReaderRoot || READING_PATH_RE.test(pathname))) return true;
+
+    // Keep the Reader available on first/last chapters where one directional
+    // link can legitimately be absent, while requiring chapter-shaped context.
+    return hasReaderRoot && READING_PATH_RE.test(pathname);
   }
 
   // ---------------------------------------------------------------------------
@@ -622,6 +634,16 @@ declare function GM_setValue<T>(key: string, value: T): void;
     updateUI();
 
     try {
+      // Re-check at the mutation boundary. This protects against boot-time
+      // false positives and against SPAs that navigate from a chapter to a
+      // catalogue/home page without reloading the userscript.
+      if (!isLikelyReaderPage()) {
+        status.cachedAhead = 0;
+        status.problem = false;
+        status.message = 'Hors page de lecture — buffer inactif';
+        return;
+      }
+
       const current = await saveCurrentChapter();
       if (!current?.nextUrl) {
         status.cachedAhead = 0;
@@ -2541,7 +2563,7 @@ declare function GM_setValue<T>(key: string, value: T): void;
   // Boot
   // ---------------------------------------------------------------------------
   async function boot() {
-    if (!isLikelyReaderPage() && !STRONG_READER_URL_RE.test(location.href)) return;
+    if (!isLikelyReaderPage()) return;
 
     await refreshCacheStats();
     await refreshCachedAheadStatus();

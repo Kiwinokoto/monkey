@@ -168,3 +168,14 @@ test("adaptive buffer uses observed bytes, hard byte budgets and storage quota g
   assert.ok(!readerBufferSource.includes("navigator.connection"));
   assert.ok(!readerBufferSource.includes("effectiveType"));
 });
+
+
+test("homepage/catalogue pages cannot start the reading buffer from loose chapter links", () => {
+  assert.ok(readerBufferSource.includes("const READING_PATH_RE ="));
+  assert.ok(readerBufferSource.includes("const READING_ROOT_SELECTOR ="));
+  assert.ok(readerBufferSource.includes("if (!isLikelyReaderPage()) return;"));
+  assert.ok(readerBufferSource.includes("Hors page de lecture — buffer inactif"));
+  assert.ok(!readerBufferSource.includes("STRONG_READER_URL_RE"));
+  assert.ok(!readerBufferSource.includes("if (nextUrl && prevUrl) return true;"));
+  assert.ok(readerBufferSource.includes("return hasReaderRoot && READING_PATH_RE.test(pathname);"));
+});
