@@ -12,7 +12,7 @@ Compatibles avec **Violentmonkey** et **Tampermonkey**.
 
 **RER Reader** active :
 
-- le **buffer cache-first de 5 chapitres** sur les lecteurs de novels, mangas, manhua, manhwa, webtoons et comics ;
+- le **buffer cache-first adaptatif** sur les lecteurs de novels, mangas, manhua, manhwa, webtoons et comics ;
 - le vrai bouton **Next** du site sert directement le chapitre depuis le cache lorsqu'il est prêt, même si le téléphone pense encore être en ligne ;
 - l'**auto-scroll sur comics et novels**, avec deux profils adaptés : rapide pour les lecteurs d'images, lent et fin pour le texte ;
 - il est **activé par défaut sur les comics** et **désactivé par défaut sur les novels**, puis configurable site par site dans le panneau Reader.
@@ -47,12 +47,12 @@ Fichier : `RER-Reader.user.js`
 
 C'est le script tout-en-un destiné à la lecture sur ordinateur et mobile :
 
-- buffer glissant jusqu'à **5 chapitres** ;
+- buffer glissant **adaptatif** selon la taille observée, le budget local et le quota disponible ;
 - navigation **cache-first** : un clic sur le vrai `Next` ouvre d'abord la copie IndexedDB si elle existe, puis le Reader recharge seulement ce qui manque en arrière-plan ;
 - conservation du HTML et, lorsque le CDN l'autorise, des images ;
 - arrêt propre sur `401`, `403` et `429` ;
 - protection contre les liens « suivant » en boucle ;
-- **un seul contrôleur adaptatif** représente le Reader : `📚 4/5 → 5/5` pendant le travail du buffer, puis `▶ / ❚❚` lorsque l'auto-scroll est activé ;
+- **un seul contrôleur adaptatif** représente le Reader : `📚 0/8 → 8/8` (ou une autre cible calculée) pendant le travail du buffer, puis `▶ / ❚❚` lorsque l'auto-scroll est activé ;
 - sur un novel, l'auto-scroll est désactivé par défaut : après le buffer, le contrôle se réduit à un petit `⚙` très discret pour garder un accès aux réglages ; en cas de problème il redevient clairement visible ;
 - la vitesse n'est affichée que pendant son réglage, puis le contrôle redevient compact ;
 - auto-scroll comics : **-1000 à 1000 px/s**, pas de **50 px/s** ;

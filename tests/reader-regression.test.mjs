@@ -192,12 +192,14 @@ test("origin pruning is tab-safe and does not evict another manga's valid buffer
 });
 
 
-test("Reader control keeps a stable nearest-edge anchor while morphing", () => {
+test("Reader control uses CSS edge anchoring and an internal label morph", () => {
   assert.ok(readerBufferSource.includes("let controlAnchor = 'right';"));
-  assert.ok(readerBufferSource.includes("function syncControlAnchor()"));
-  assert.ok(readerBufferSource.includes("function preserveControlAnchorDuringResize(previousRect)"));
-  assert.ok(readerBufferSource.includes("previousRect.right - width"));
-  assert.ok(readerBufferSource.includes("requestAnimationFrame(() => preserveControlAnchorDuringResize(previousRect))"));
-  assert.ok(readerBufferSource.includes("rr-anchor-left"));
-  assert.ok(readerBufferSource.includes("rr-anchor-right"));
+  assert.ok(readerBufferSource.includes("function applyAnchoredControlPosition(anchor, offset, top, save = false)"));
+  assert.ok(readerBufferSource.includes("horizontalAnchor: controlAnchor"));
+  assert.ok(readerBufferSource.includes("control.style[controlAnchor]"));
+  assert.ok(readerBufferSource.includes("anchorControlToNearestEdge(true);"));
+  assert.ok(readerBufferSource.includes("max-width: 112px;"));
+  assert.ok(readerBufferSource.includes("max-width 220ms ease"));
+  assert.ok(!readerBufferSource.includes("preserveControlAnchorDuringResize"));
+  assert.ok(!readerBufferSource.includes("rr-compact .rr-label {\n        display: none;"));
 });

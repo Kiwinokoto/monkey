@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "RER Reader",
-  "version": "1.5.1",
-  "description": "Reader cache-first avec buffer de 5 chapitres et auto-scroll adaptatif pour comics et novels.",
+  "version": "1.6.0",
+  "description": "Reader cache-first avec buffer adaptatif, reprise de lecture et auto-scroll pour comics et novels.",
   "homepage_url": "https://github.com/Kiwinokoto/monkey",
   "permissions": [
     "storage"

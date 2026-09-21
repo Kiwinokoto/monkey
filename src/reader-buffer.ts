@@ -836,7 +836,7 @@ declare function GM_setValue<T>(key: string, value: T): void;
     updateUI();
 
     if (navigator.onLine) {
-      // Laisse le 4/5 respirer un instant avant le complément éventuel.
+      // Laisse l'état courant du buffer respirer un instant avant le complément éventuel.
       setTimeout(() => void prefetchAhead(), 350);
     }
 
@@ -1085,11 +1085,7 @@ declare function GM_setValue<T>(key: string, value: T): void;
     }
 
     if (hasCustomPosition) {
-      const left = Number.parseFloat(control.style.left);
-      const bottom = Number.parseFloat(control.style.bottom);
-      if (Number.isFinite(left) && Number.isFinite(bottom)) {
-        applyControlPosition(left, bottom);
-      }
+      requestAnimationFrame(() => clampControlToViewport());
     }
   }
 
@@ -1194,31 +1190,15 @@ declare function GM_setValue<T>(key: string, value: T): void;
     return null;
   }
 
-  function syncControlAnchor() {
+  function applyControlAnchorClass() {
     if (!control) return;
-    const rect = control.getBoundingClientRect();
-    controlAnchor = rect.left + rect.width / 2 <= window.innerWidth / 2 ? 'left' : 'right';
     control.classList.toggle('rr-anchor-left', controlAnchor === 'left');
     control.classList.toggle('rr-anchor-right', controlAnchor === 'right');
-  }
-
-  function preserveControlAnchorDuringResize(previousRect) {
-    if (!control || !previousRect) return;
-    if (hasCustomPosition) {
-      const bottom = Number.parseFloat(control.style.bottom);
-      if (!Number.isFinite(bottom)) return;
-      const width = control.getBoundingClientRect().width;
-      const left = controlAnchor === 'right' ? previousRect.right - width : previousRect.left;
-      applyControlPosition(left, bottom);
-    }
-    if (panel && !panel.hidden) requestAnimationFrame(positionPanelNearControl);
   }
 
   function setControlContent(iconValue, labelText, expanded) {
     if (!control || !controlIcon || !controlLabel) return;
 
-    const previousRect = control.getBoundingClientRect();
-    syncControlAnchor();
     controlIcon.replaceChildren();
 
     const mediaIcon =
@@ -1235,7 +1215,8 @@ declare function GM_setValue<T>(key: string, value: T): void;
     controlLabel.textContent = labelText || '';
     control.classList.toggle('rr-expanded', Boolean(expanded));
     control.classList.toggle('rr-compact', !expanded);
-    requestAnimationFrame(() => preserveControlAnchorDuringResize(previousRect));
+    applyControlAnchorClass();
+    if (panel && !panel.hidden) requestAnimationFrame(positionPanelNearControl);
   }
 
   function renderControl() {
@@ -1337,40 +1318,74 @@ declare function GM_setValue<T>(key: string, value: T): void;
     renderControl();
   }
 
-  function applyControlPosition(left, bottom, save = false) {
+  function applyAnchoredControlPosition(anchor, offset, top, save = false) {
     if (!control) return;
 
     const rect = control.getBoundingClientRect();
-    const maxLeft = Math.max(0, window.innerWidth - rect.width);
-    const maxBottom = Math.max(0, window.innerHeight - rect.height);
+    const margin = 8;
+    const maxTop = Math.max(margin, window.innerHeight - rect.height - margin);
+    const maxOffset = Math.max(margin, window.innerWidth - rect.width - margin);
+    const clampedTop = Math.min(Math.max(margin, top), maxTop);
+    const clampedOffset = Math.min(Math.max(margin, offset), maxOffset);
 
-    const clampedLeft = Math.min(Math.max(0, left), maxLeft);
-    const clampedBottom = Math.min(Math.max(0, bottom), maxBottom);
-
-    control.style.left = `${clampedLeft}px`;
-    control.style.right = 'auto';
-    control.style.top = 'auto';
-    control.style.bottom = `${clampedBottom}px`;
+    controlAnchor = anchor === 'left' ? 'left' : 'right';
+    control.style[controlAnchor] = `${clampedOffset}px`;
+    control.style[controlAnchor === 'left' ? 'right' : 'left'] = 'auto';
+    control.style.top = `${clampedTop}px`;
+    control.style.bottom = 'auto';
     hasCustomPosition = true;
-    syncControlAnchor();
+    applyControlAnchorClass();
 
     if (save) {
       GM_setValue(
         READER_POSITION_KEY,
-        JSON.stringify({ left: clampedLeft, bottom: clampedBottom })
+        JSON.stringify({
+          horizontalAnchor: controlAnchor,
+          offset: Math.round(clampedOffset),
+          top: Math.round(clampedTop),
+        })
       );
     }
 
     if (panel && !panel.hidden) positionPanelNearControl();
   }
 
-  function setControlPositionFromTop(left, top, save = false) {
+  function setControlPositionFromTop(left, top) {
     if (!control) return;
+
     const rect = control.getBoundingClientRect();
-    const maxTop = Math.max(0, window.innerHeight - rect.height);
-    const clampedTop = Math.min(Math.max(0, top), maxTop);
-    const bottom = window.innerHeight - clampedTop - rect.height;
-    applyControlPosition(left, bottom, save);
+    const margin = 8;
+    const maxLeft = Math.max(margin, window.innerWidth - rect.width - margin);
+    const maxTop = Math.max(margin, window.innerHeight - rect.height - margin);
+    const clampedLeft = Math.min(Math.max(margin, left), maxLeft);
+    const clampedTop = Math.min(Math.max(margin, top), maxTop);
+
+    control.style.left = `${clampedLeft}px`;
+    control.style.right = 'auto';
+    control.style.top = `${clampedTop}px`;
+    control.style.bottom = 'auto';
+    hasCustomPosition = true;
+
+    if (panel && !panel.hidden) positionPanelNearControl();
+  }
+
+  function anchorControlToNearestEdge(save = false) {
+    if (!control) return;
+
+    const rect = control.getBoundingClientRect();
+    const anchor = rect.left + rect.width / 2 <= window.innerWidth / 2 ? 'left' : 'right';
+    const offset = anchor === 'left' ? rect.left : window.innerWidth - rect.right;
+    applyAnchoredControlPosition(anchor, offset, rect.top, save);
+  }
+
+  function clampControlToViewport({ persist = false } = {}) {
+    if (!control || !hasCustomPosition) return;
+
+    const rect = control.getBoundingClientRect();
+    const offset = controlAnchor === 'left'
+      ? rect.left
+      : window.innerWidth - rect.right;
+    applyAnchoredControlPosition(controlAnchor, offset, rect.top, persist);
   }
 
   function loadSavedControlPosition() {
@@ -1380,16 +1395,38 @@ declare function GM_setValue<T>(key: string, value: T): void;
       ''
     );
 
-    if (!raw) return;
+    if (!raw) {
+      applyControlAnchorClass();
+      return;
+    }
 
     try {
       const position = JSON.parse(raw);
+      if (
+        (position.horizontalAnchor === 'left' || position.horizontalAnchor === 'right') &&
+        Number.isFinite(position.offset) &&
+        Number.isFinite(position.top)
+      ) {
+        applyAnchoredControlPosition(
+          position.horizontalAnchor,
+          position.offset,
+          position.top
+        );
+        return;
+      }
+
+      // Legacy positions used raw left/bottom or left/top coordinates. Convert
+      // them once to the nearest-edge model so later morphs cannot drift.
       if (Number.isFinite(position.left) && Number.isFinite(position.bottom)) {
-        applyControlPosition(position.left, position.bottom);
+        const rect = control.getBoundingClientRect();
+        const top = window.innerHeight - position.bottom - rect.height;
+        setControlPositionFromTop(position.left, top);
+        anchorControlToNearestEdge(true);
         return;
       }
       if (Number.isFinite(position.left) && Number.isFinite(position.top)) {
         setControlPositionFromTop(position.left, position.top);
+        anchorControlToNearestEdge(true);
       }
     } catch {
       // Position illisible : on garde l'emplacement par défaut.
@@ -1466,8 +1503,7 @@ declare function GM_setValue<T>(key: string, value: T): void;
     clearLongPressTimer();
 
     if (state.mode === 'drag') {
-      const rect = control.getBoundingClientRect();
-      setControlPositionFromTop(rect.left, rect.top, true);
+      anchorControlToNearestEdge(true);
     } else if (state.mode === 'longpress' && event.type !== 'pointercancel') {
       openReaderPanel();
     } else if (state.mode === 'pending' && event.type !== 'pointercancel') {
@@ -1987,13 +2023,13 @@ declare function GM_setValue<T>(key: string, value: T): void;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        gap: 7px;
+        gap: 0;
         box-sizing: border-box;
         width: auto;
         min-width: var(--rr-size, 47px);
         height: var(--rr-size, 47px);
         margin: 0;
-        padding: 0 13px;
+        padding: 0;
         overflow: hidden;
         border: 1px solid var(--rr-border, rgba(20, 80, 90, .8));
         border-radius: 999px;
@@ -2014,8 +2050,6 @@ declare function GM_setValue<T>(key: string, value: T): void;
         -webkit-backdrop-filter: blur(12px) saturate(135%);
         transition:
           opacity 360ms ease,
-          width 220ms ease,
-          min-width 220ms ease,
           padding 220ms ease,
           transform 160ms ease,
           box-shadow 220ms ease;
@@ -2056,19 +2090,21 @@ declare function GM_setValue<T>(key: string, value: T): void;
       }
 
       #rer-reader-control.rr-compact {
-        width: var(--rr-size, 47px);
         min-width: var(--rr-size, 47px);
         padding-left: 0;
         padding-right: 0;
       }
 
       #rer-reader-control.rr-expanded {
-        width: auto;
-        min-width: calc(var(--rr-size, 47px) + 38px);
+        min-width: var(--rr-size, 47px);
+        padding-left: 11px;
+        padding-right: 11px;
       }
 
-      /* One pill morphs between status and compact control. When the user has
-         placed it, width changes preserve the nearest screen-edge anchor. */
+      /* The control itself stays the same pill. The label opens/closes inside
+         it, so the outer geometry morphs smoothly instead of jumping between
+         a fixed circle and width:auto. Edge anchoring then makes that growth
+         happen inward from the nearest side of the viewport. */
       #rer-reader-control.rr-anchor-left {
         transform-origin: left center;
       }
@@ -2132,11 +2168,22 @@ declare function GM_setValue<T>(key: string, value: T): void;
 
       #rer-reader-control .rr-label {
         display: inline-block;
+        max-width: 0;
+        margin-left: 0;
+        overflow: hidden;
         line-height: 1;
+        opacity: 0;
+        white-space: nowrap;
+        transition:
+          max-width 220ms ease,
+          margin-left 220ms ease,
+          opacity 160ms ease;
       }
 
-      #rer-reader-control.rr-compact .rr-label {
-        display: none;
+      #rer-reader-control.rr-expanded .rr-label {
+        max-width: 112px;
+        margin-left: 7px;
+        opacity: 1;
       }
 
       #rer-reading-buffer-panel {
@@ -2388,11 +2435,7 @@ declare function GM_setValue<T>(key: string, value: T): void;
 
   window.addEventListener('resize', () => {
     if (hasCustomPosition && control) {
-      const left = Number.parseFloat(control.style.left);
-      const bottom = Number.parseFloat(control.style.bottom);
-      if (Number.isFinite(left) && Number.isFinite(bottom)) {
-        applyControlPosition(left, bottom);
-      }
+      requestAnimationFrame(() => clampControlToViewport({ persist: true }));
     }
     if (panel && !panel.hidden) positionPanelNearControl();
   });

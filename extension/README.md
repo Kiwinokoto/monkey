@@ -105,6 +105,27 @@ permission at installation.
 Settings stay in `browser.storage.local`. Chapter/page cache data stays in
 browser-local storage. There is no remote extension backend and no analytics.
 
+## Publication readiness
+
+The build already produces separate store-ready ZIP payloads for Firefox/AMO
+and Chrome Web Store from the same canonical Reader source.
+
+Before the first public submission:
+
+1. run `npm ci && npm run typecheck && npm test && npm run build`;
+2. verify the Firefox package with `web-ext lint --warnings-as-errors`;
+3. smoke-test the unpacked Chrome build and temporary Firefox build on at
+   least one comic and one novel site;
+4. verify desktop positioning/morphing and Firefox Android behavior;
+5. use `../PRIVACY.md` as the public privacy policy;
+6. explain the broad HTTP/HTTPS site access in the store review: the Reader is
+   site-agnostic, activates only after local reader-page detection, and sends
+   no browsing data to a Reader backend.
+
+The public product name is intentionally still provisional. Keep the technical
+package ID, Gecko ID and source paths stable until a publication name is
+chosen; a display-name change does not require a codebase rename.
+
 ## Development rule
 
 Do not edit generated `content.js`, `manifest.json`, `dist/`, or package
