@@ -1,6 +1,8 @@
-# Monkey
+# Tunnel Reader
 
-Reader de confort pour la lecture sur le Web, distribué en userscript et en WebExtension expérimentale. Il est conçu pour la lecture sur ordinateur comme sur mobile, à la maison comme en déplacement.
+Tunnel Reader est un reader de confort pour la lecture sur le Web, distribué en userscript et en WebExtension. Il est conçu pour la lecture sur ordinateur comme sur mobile, à la maison comme en déplacement.
+
+> **Nom public de l’extension : Tunnel Reader.** Les noms techniques historiques (`RER Reader`, `RER-Reader.user.js`) et l’ID Gecko restent stables pour préserver la compatibilité et les mises à jour.
 
 Compatibles avec **Violentmonkey** et **Tampermonkey**.
 
@@ -31,9 +33,9 @@ Avec Violentmonkey ou Tampermonkey installé, ouvre le lien du Reader puis cliqu
 
 Le userscript publié sur `main` déclare `@downloadURL` et `@updateURL` vers son URL GitHub brute. Tampermonkey et Violentmonkey peuvent donc vérifier périodiquement cette URL et installer automatiquement une version plus récente lorsque le champ `@version` augmente. Une vérification manuelle des mises à jour reste possible depuis le gestionnaire de userscripts.
 
-La version courante est **1.6.1**. Cette incrémentation de version est volontaire : sans changement de `@version`, un gestionnaire de userscripts peut considérer qu'un fichier modifié sur GitHub n'est pas une nouvelle version et ne pas le proposer automatiquement.
+La version courante est **1.6.2**. Cette incrémentation de version est volontaire : sans changement de `@version`, un gestionnaire de userscripts peut considérer qu'un fichier modifié sur GitHub n'est pas une nouvelle version et ne pas le proposer automatiquement.
 
-Les WebExtensions chargées manuellement en développement (`Load unpacked` / add-on temporaire Firefox) ne se mettent pas à jour depuis GitHub toutes seules. Une future installation depuis Chrome Web Store ou Firefox AMO recevra au contraire les mises à jour gérées par le navigateur/store, comme une extension normale.
+Les WebExtensions chargées manuellement en développement (`Load unpacked` / add-on temporaire Firefox) ne se mettent pas à jour depuis GitHub toutes seules. L’extension Firefox **Tunnel Reader** publiée via AMO reçoit au contraire les mises à jour gérées par Firefox lorsque de nouvelles versions sont soumises.
 
 ## Installation sur Android
 

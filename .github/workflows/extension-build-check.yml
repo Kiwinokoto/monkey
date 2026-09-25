@@ -9,7 +9,10 @@ on:
       - "src/**"
       - "scripts/**"
       - "docs/ROADMAP.md"
+      - "package.json"
+      - "package-lock.json"
       - ".github/workflows/extension-build-check.yml"
+      - ".github/workflows/amo-publish.yml"
   pull_request:
     paths:
       - "RER-Reader.user.js"
@@ -18,7 +21,10 @@ on:
       - "src/**"
       - "scripts/**"
       - "docs/ROADMAP.md"
+      - "package.json"
+      - "package-lock.json"
       - ".github/workflows/extension-build-check.yml"
+      - ".github/workflows/amo-publish.yml"
   workflow_dispatch:
 
 jobs:

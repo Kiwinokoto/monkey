@@ -1,10 +1,12 @@
-# RER Reader — browser extension
+# Tunnel Reader — browser extension
 
-This folder packages **RER Reader** as a Firefox/Chrome WebExtension.
+This folder packages **Tunnel Reader** as a Firefox/Chrome WebExtension.
 
 The canonical implementation remains `../RER-Reader.user.js`. The browser
 packages are generated from it; the Reader is not maintained as separate
-Firefox, Chrome, and userscript codebases.
+Firefox, Chrome, and userscript codebases. The historical file names and Gecko
+ID remain unchanged intentionally; only the public extension name is Tunnel
+Reader.
 
 ## Architecture
 
@@ -44,6 +46,28 @@ The build creates:
 - `extension/packages/rer-reader-chrome-<version>.zip`
 
 The package directories and ZIPs are generated artifacts and are ignored by Git.
+
+## AMO reviewer build
+
+The public Firefox build is generated from the TypeScript sources under
+`../src/` using the open-source `esbuild` package pinned in
+`../package-lock.json`.
+
+The CI/release environment uses Ubuntu and Node.js 22. A reviewer can reproduce
+the committed/generated extension from the repository root with:
+
+```bash
+npm ci --ignore-scripts
+npm run typecheck
+npm test
+npm run build
+```
+
+The resulting Firefox tree is `extension/dist/firefox/`. The build also
+regenerates `RER-Reader.user.js`, `extension/content.js`, and
+`extension/manifest.json`; these generated files must match the committed
+versions exactly. The AMO publication workflow attaches a source archive of the
+same Git commit to every listed release.
 
 ## Firefox desktop development
 
@@ -128,9 +152,9 @@ Before the first public submission:
    site-agnostic, activates only after local reader-page detection, and sends
    no browsing data to a Reader backend.
 
-The public product name is intentionally still provisional. Keep the technical
-package ID, Gecko ID and source paths stable until a publication name is
-chosen; a display-name change does not require a codebase rename.
+The public product name is **Tunnel Reader**. Keep the historical technical
+package names, Gecko ID and source paths stable; the display-name change does
+not require a codebase rename.
 
 ## Development rule
 

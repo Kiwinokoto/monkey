@@ -1,0 +1,75 @@
+name: Publish Firefox AMO
+
+on:
+  workflow_run:
+    workflows:
+      - "Extension build check"
+    types:
+      - completed
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firefox-amo-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the validated commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Detect release version bump
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(node -p "require('./package.json').version")"
+          previous="$(git show HEAD^:package.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')"
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          if [ "$current" = "$previous" ]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "No version bump ($current); AMO publication skipped."
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "Version bump detected: $previous -> $current"
+          fi
+
+      - name: Install development toolchain
+        if: ${{ steps.version.outputs.publish == 'true' }}
+        run: npm ci --ignore-scripts
+
+      - name: Rebuild and test release
+        if: ${{ steps.version.outputs.publish == 'true' }}
+        run: |
+          npm run typecheck
+          npm test
+          npm run build
+          npx --yes web-ext@10.5.0 lint --source-dir extension/dist/firefox --warnings-as-errors
+
+      - name: Package reviewer source
+        if: ${{ steps.version.outputs.publish == 'true' }}
+        run: |
+          mkdir -p extension/packages
+          git archive --format=zip             --output "extension/packages/tunnel-reader-source-${{ steps.version.outputs.current }}.zip"             HEAD
+
+      - name: Submit listed release to Firefox AMO
+        if: ${{ steps.version.outputs.publish == 'true' }}
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
+          WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          npx --yes web-ext@10.5.0 --no-input sign             --source-dir extension/dist/firefox             --channel listed             --amo-metadata extension/amo-metadata.json             --upload-source-code "extension/packages/tunnel-reader-source-${{ steps.version.outputs.current }}.zip"             --approval-timeout 0             --timeout 900000
