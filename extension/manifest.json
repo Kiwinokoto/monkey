@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Tunnel Reader",
-  "version": "1.6.2",
-  "description": "Adaptive cache-first reading with offline buffering and auto-scroll for comics and novels.",
+  "version": "1.6.3",
+  "description": "Adaptive offline buffering, Focus Mode and auto-scroll for comics and novels.",
   "homepage_url": "https://github.com/Kiwinokoto/monkey",
   "permissions": [
     "storage"

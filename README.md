@@ -17,6 +17,7 @@ Compatibles avec **Violentmonkey** et **Tampermonkey**.
 - le **buffer cache-first adaptatif** sur les lecteurs de novels, mangas, manhua, manhwa, webtoons et comics ;
 - le vrai bouton **Next** du site sert directement le chapitre depuis le cache lorsqu'il est prêt, même si le téléphone pense encore être en ligne ;
 - l'**auto-scroll sur comics et novels**, avec deux profils adaptés : rapide pour les lecteurs d'images, lent et fin pour le texte ;
+- le **Focus Mode**, désactivé par défaut, masque temporairement le chrome de page et les overlays gênants sans supprimer le contenu ;
 - il est **activé par défaut sur les comics** et **désactivé par défaut sur les novels**, puis configurable site par site dans le panneau Reader.
 
 Il remplace donc, pour cet usage, l'installation simultanée de `RER Reading Buffer` + `Auto Scroll Comics`.
@@ -33,7 +34,7 @@ Avec Violentmonkey ou Tampermonkey installé, ouvre le lien du Reader puis cliqu
 
 Le userscript publié sur `main` déclare `@downloadURL` et `@updateURL` vers son URL GitHub brute. Tampermonkey et Violentmonkey peuvent donc vérifier périodiquement cette URL et installer automatiquement une version plus récente lorsque le champ `@version` augmente. Une vérification manuelle des mises à jour reste possible depuis le gestionnaire de userscripts.
 
-La version courante est **1.6.2**. Cette incrémentation de version est volontaire : sans changement de `@version`, un gestionnaire de userscripts peut considérer qu'un fichier modifié sur GitHub n'est pas une nouvelle version et ne pas le proposer automatiquement.
+La version courante est **1.6.3**. Cette incrémentation de version est volontaire : sans changement de `@version`, un gestionnaire de userscripts peut considérer qu'un fichier modifié sur GitHub n'est pas une nouvelle version et ne pas le proposer automatiquement.
 
 Les WebExtensions chargées manuellement en développement (`Load unpacked` / add-on temporaire Firefox) ne se mettent pas à jour depuis GitHub toutes seules. L’extension Firefox **Tunnel Reader** publiée via AMO reçoit au contraire les mises à jour gérées par Firefox lorsque de nouvelles versions sont soumises.
 
@@ -67,7 +68,7 @@ C'est le script tout-en-un destiné à la lecture sur ordinateur et mobile :
 - la vitesse n'est affichée que pendant son réglage, puis le contrôle redevient compact ;
 - auto-scroll comics : **-1000 à 1000 px/s**, pas de **50 px/s** ;
 - auto-scroll novels : **-300 à 300 px/s**, pas de **5 px/s entre -20 et +20**, puis **10 px/s** au-delà, vitesse initiale **40 px/s** ;
-- les préférences du Reader sont mémorisées **par site** : activation, vitesse, couleur, opacité, taille, position et repères latéraux peuvent donc être différents d'un site à l'autre ;
+- les préférences du Reader sont mémorisées **par site** : activation, vitesse, Focus Mode, couleur, opacité, taille, position et repères latéraux peuvent donc être différents d'un site à l'autre ;
 - pendant l'auto-scroll, le contrôle devient presque transparent après un court délai ;
 - des **repères latéraux fixes** optionnels peuvent encadrer la lecture : un unique curseur, désactivé par défaut et mémorisé par site, augmente progressivement leur présence, leur largeur et leur fondu ; une ondulation fixe très discrète et quelques points lumineux renforcent le repère périphérique, toujours dans la couleur du thème ;
 - toucher ou cliquer ailleurs dans la page arrête l'auto-scroll sans bloquer l'action normale du site ;
@@ -120,7 +121,8 @@ Version standalone du buffer. Utile si l'on ne veut **aucun auto-scroll**.
 | Déplacer le contrôle | Glisser-déposer | Appui long (~450 ms), puis glisser |
 | Ouvrir les réglages | Clic droit sur le contrôle | Appui long immobile, puis relâcher |
 | Activer / désactiver la fonction auto-scroll | Switch dans le panneau Reader | Switch dans le panneau Reader |
-| Fermer les réglages | `×`, `Échap` ou clic ailleurs | `×` ou tap ailleurs |
+| Activer / désactiver Focus Mode | Switch **Focus** dans le panneau Reader | Switch **Focus** dans le panneau Reader |
+| Fermer les réglages | `Échap` ou clic ailleurs | Tap ailleurs |
 | Reprendre la main pendant l'auto-scroll | Cliquer ailleurs dans la page | Toucher / swiper ailleurs dans la page |
 
 Le geste tactile doit commencer sur le contrôle, mais le doigt peut ensuite sortir largement de sa surface grâce au *pointer capture*. La vitesse apparaît uniquement pendant le réglage.

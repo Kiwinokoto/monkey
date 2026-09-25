@@ -40,9 +40,9 @@ La migration des sources vers **TypeScript est effectuée** : les deux modules d
 - Screen Wake Lock : **implémenté en v1.5.1**. Actif uniquement pendant un auto-scroll réellement actif à vitesse non nulle ; libéré sur pause, vitesse zéro, limite de page, onglet masqué et sortie ; réacquis au retour visible si la lecture continue.
 - Buffer adaptatif : **implémenté**. La cible varie à partir de la taille réellement observée par chapitre, sous budget en octets et plafond de chapitres ; `navigator.storage.estimate()` protège en plus le quota quand disponible. Aucun signal de qualité réseau n'est utilisé comme prédiction.
 - Contrôle flottant : morphing et positionnement repris sur le modèle validé dans GPT Skins : une seule pastille dont le label s'ouvre/se ferme, avec ancrage persistant au bord gauche/droit le plus proche. Les anciennes positions brutes sont migrées automatiquement. Le redimensionnement du viewport (y compris DevTools docké) ne réécrit plus la position voulue : le clamp reste temporaire et le bouton revient à la dernière position choisie par drag quand l'espace redevient disponible.
-- Extension navigateur : nom public **Tunnel Reader** choisi. La **1.6.2** prépare la première soumission Firefox AMO en canal `listed`, marquée expérimentale, avec source de review jointe et publication automatique après CI verte lorsqu'une version est incrémentée sur `main`. Le Gecko ID et les noms techniques historiques restent stables. Le userscript conserve son canal d'auto-update via `@updateURL` / `@downloadURL` sur `main`.
-- Bug bêta connu à vérifier en usage réel : le contrôle flottant peut parfois rester visible ou ne pas se replier au moment attendu ; ne pas bloquer la première publication pour ce défaut d'interface tant que buffer et auto-scroll restent fonctionnels.
-- Prochaine priorité : validation terrain du buffer et du nouveau morphing sur novels/comics desktop + mobile, correction ciblée du contrôle si reproduite, puis **Focus Mode** si les mesures restent cohérentes.
+- Extension navigateur : nom public **Tunnel Reader** choisi. La **1.6.3** ajoute Focus Mode et poursuit la publication Firefox AMO automatisée après CI verte. Le Gecko ID et les noms techniques historiques restent stables. Le userscript conserve son canal d'auto-update via `@updateURL` / `@downloadURL` sur `main`.
+- Focus Mode : **implémenté en v1.6.3**. Désactivé par défaut, mémorisé par site, réversible sans suppression du DOM et capable de masquer aussi les éléments de chrome ajoutés dynamiquement.
+- Validation terrain : aucun bug confirmé du contrôle flottant à ce stade ; continuer l'usage réel sur novels/comics, desktop + mobile avant d'ajouter de nouvelles heuristiques spécifiques à un site.
 
 ## Piste d'architecture UI — Shadow DOM
 
@@ -88,7 +88,7 @@ Quand l'auto-scroll est réellement actif et la vitesse non nulle, demander un W
 Ajouter des tests de régression autour de l'arrêt automatique en limite de page et de la libération du Wake Lock.
 
 ### Focus Mode
-Option désactivée par défaut. Atténuer/masquer temporairement les éléments qui gênent la lecture sans supprimer le DOM : headers/nav/aside, gros overlays, éléments fixed/sticky envahissants. Favoriser des heuristiques génériques et de petits adaptateurs de domaine seulement si nécessaire. Restauration immédiate à la désactivation.
+Implémenté en **v1.6.3**. Option désactivée par défaut et mémorisée par site. Le mode masque temporairement, via une classe réversible, les éléments sémantiques de chrome (`header`, `nav`, `aside`) ainsi que les overlays/fixed/sticky suffisamment envahissants, tout en protégeant les racines de lecture et l'UI Tunnel Reader. Un `MutationObserver` traite les distractions ajoutées dynamiquement ; la désactivation restaure immédiatement les éléments sans supprimer le DOM.
 
 ### Contrôles canapé / télé
 Prévoir clavier/télécommande Bluetooth et Gamepad API : play/pause, vitesse, chapitre précédent/suivant, Focus. La communication téléphone -> autre appareil est une étape séparée et ne doit pas gonfler le userscript de base.
