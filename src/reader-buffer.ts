@@ -1432,7 +1432,7 @@ declare function GM_setValue<T>(key: string, value: T): void;
         : 'Indisponible';
     }
 
-    const focusToggle = panel.querySelector<HTMLInputElement>('#rer-reader-focus-toggle');
+    const focusToggle = panel.querySelector('#rer-reader-focus-toggle') as HTMLInputElement | null;
     if (focusToggle) focusToggle.checked = focusModeEnabled;
 
     const retryBtn = panel.querySelector('#rer-reading-buffer-retry');
