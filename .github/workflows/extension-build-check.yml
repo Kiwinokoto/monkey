@@ -68,11 +68,11 @@ jobs:
       - name: Lint Firefox package for AMO
         run: npx --yes web-ext@10 lint --source-dir extension/dist/firefox --warnings-as-errors
 
-      - name: Ensure committed generated files are current
-        run: git diff --exit-code -- RER-Reader.user.js extension/content.js extension/manifest.json
-
       - name: Upload browser packages
         uses: actions/upload-artifact@v4
         with:
           name: rer-reader-extension-packages
           path: extension/packages/*.zip
+
+      - name: Ensure committed generated files are current
+        run: git diff --exit-code -- RER-Reader.user.js extension/content.js extension/manifest.json

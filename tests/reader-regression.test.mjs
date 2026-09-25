@@ -14,6 +14,7 @@ test("current Reader preferences are scoped by site, not by mode", () => {
     "const READER_POSITION_KEY = readerSiteKey('rerReaderControlPosition');",
     "const SCROLL_ENABLED_KEY = readerSiteKey('rerReaderScrollEnabled');",
     "const READER_RAILS_KEY = readerSiteKey('rerReaderSideRailsLevel');",
+    "const FOCUS_MODE_KEY = readerSiteKey('rerReaderFocusMode');",
     "const SCROLL_SPEED_KEY = readerSiteKey('rerReaderScrollSpeedPxPerSecond');",
     'const SPEED_STORAGE_KEY = siteStorageKey("rerReaderScrollSpeedPxPerSecond");',
     'const ENABLED_STORAGE_KEY = siteStorageKey("rerReaderScrollEnabled");',
@@ -111,6 +112,22 @@ test("size and opacity also shape the lateral rails", () => {
   assert.ok(panelBlock.indexOf("opacityRow") < panelBlock.indexOf("railsRow"));
 });
 
+
+
+test("Focus Mode hides distractions reversibly and follows dynamic page chrome", () => {
+  assert.ok(readerBufferSource.includes("const FOCUS_MODE_KEY = readerSiteKey('rerReaderFocusMode');"));
+  assert.ok(readerBufferSource.includes("focusToggle.id = 'rer-reader-focus-toggle';"));
+  assert.ok(readerBufferSource.includes("GM_setValue(FOCUS_MODE_KEY, focusModeEnabled);"));
+  assert.ok(readerBufferSource.includes("function syncFocusMode()"));
+  assert.ok(readerBufferSource.includes("element.classList.add('rer-focus-hidden');"));
+  assert.ok(readerBufferSource.includes("element.classList.remove('rer-focus-hidden');"));
+  assert.ok(readerBufferSource.includes("new MutationObserver(mutations => {"));
+  assert.ok(readerBufferSource.includes("FOCUS_READER_UI_SELECTOR"));
+  assert.ok(readerBufferSource.includes("main, article, [role=\"main\"]"));
+  assert.ok(readerBufferSource.includes(".rer-focus-hidden {"));
+  assert.ok(readerBufferSource.includes("display: none !important;"));
+  assert.ok(readerBufferSource.includes("syncFocusMode();\n    updateUI();\n    restoreSavedReadingProgress();"));
+});
 
 test("reading progress persists URL, semantic anchor and ratio fallback", () => {
   assert.ok(source.includes("const READING_PROGRESS_KEY = readerSiteKey('rerReaderReadingProgress');"));

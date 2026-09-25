@@ -33,6 +33,12 @@ declare function GM_setValue<T>(key: string, value: T): void;
   const READER_URL_RE = /(manga|manhwa|manhua|webtoon|comic|webcomic|scantrad|novel|webnovel|lightnovel|fiction|wuxia|chapter|chapitre|reader|read)/i;
   const READING_PATH_RE = /(?:^|[\/_-])(chapter|chapitre|episode|reader|read)(?:[\/_-]|\d|$)/i;
   const READING_ROOT_SELECTOR = '#chapter-content, .chapter-content, .chapter_content, #readerarea, #reader-area, .reader-area, .reading-content, .chapter-reading-content';
+  const FOCUS_READER_UI_SELECTOR = '#rer-reader-control, #rer-reading-rails, #rer-reading-buffer-badge, #rer-reading-buffer-panel';
+  const FOCUS_STRUCTURAL_SELECTOR = 'header, nav, aside, [role="banner"], [role="navigation"], [role="complementary"]';
+  const FOCUS_OVERLAY_HINT_SELECTOR =
+    '[role="dialog"], [aria-modal="true"], [class*="overlay" i], [id*="overlay" i], ' +
+    '[class*="modal" i], [id*="modal" i], [class*="popup" i], [id*="popup" i], ' +
+    '[class*="cookie" i], [id*="cookie" i], [class*="consent" i], [id*="consent" i]';
   const COMIC_READER_URL_RE = /(manga|manhua|manhwa|webtoon|comic|comics|webcomic|scantrad)/i;
   const NOVEL_READER_URL_RE = /(novel|webnovel|lightnovel|light-novel|fiction|wuxia|royalroad|scribblehub)/i;
   const NEXT_TEXT_RE = /^(?:next(?:\s+chapter)?|chapter\s+next|chapitre\s+suivant|suivant|next\s*[›»→]?|[›»→])$/i;
@@ -95,6 +101,7 @@ declare function GM_setValue<T>(key: string, value: T): void;
   const READER_RAILS_KEY = readerSiteKey('rerReaderSideRailsLevel');
   const SCROLL_SPEED_KEY = readerSiteKey('rerReaderScrollSpeedPxPerSecond');
   const READING_PROGRESS_KEY = readerSiteKey('rerReaderReadingProgress');
+  const FOCUS_MODE_KEY = readerSiteKey('rerReaderFocusMode');
 
   const LEGACY_READER_COLOR_KEY = 'rerReaderAccentColor';
   const LEGACY_READER_IDLE_OPACITY_KEY = 'rerReaderIdleOpacity';
@@ -158,6 +165,9 @@ declare function GM_setValue<T>(key: string, value: T): void;
   } | null = null;
   let progressSaveTimerId: number | null = null;
   let restoringProgress = false;
+  let focusModeEnabled = Boolean(GM_getValue(FOCUS_MODE_KEY, false));
+  let focusObserver: MutationObserver | null = null;
+  const focusHiddenElements = new Set<HTMLElement>();
   let scrollState = {
     available: READER_MODE === 'comic' || READER_MODE === 'novel',
     enabled: Boolean(
@@ -1094,6 +1104,113 @@ declare function GM_setValue<T>(key: string, value: T): void;
     }
   }
 
+  function isFocusProtectedElement(element: Element) {
+    if (element.closest(FOCUS_READER_UI_SELECTOR)) return true;
+    if (element.matches(`main, article, [role="main"], ${READING_ROOT_SELECTOR}`)) return true;
+    return Boolean(element.querySelector(READING_ROOT_SELECTOR));
+  }
+
+  function isFocusCandidate(element: HTMLElement) {
+    if (isFocusProtectedElement(element)) return false;
+    if (element.matches(FOCUS_STRUCTURAL_SELECTOR)) return true;
+
+    const hintedOverlay = element.matches(FOCUS_OVERLAY_HINT_SELECTOR);
+    const style = getComputedStyle(element);
+    const positioned = style.position === 'fixed' || style.position === 'sticky';
+    if (!positioned) return false;
+
+    const rect = element.getBoundingClientRect();
+    const visibleWidth = Math.max(
+      0,
+      Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0)
+    );
+    const visibleHeight = Math.max(
+      0,
+      Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0)
+    );
+    if (visibleWidth < 24 || visibleHeight < 16) return false;
+
+    const viewportArea = Math.max(1, window.innerWidth * window.innerHeight);
+    const coverage = (visibleWidth * visibleHeight) / viewportArea;
+    const spansViewport =
+      visibleWidth >= window.innerWidth * 0.45 ||
+      visibleHeight >= window.innerHeight * 0.18;
+
+    return hintedOverlay || coverage >= 0.018 || spansViewport;
+  }
+
+  function hideFocusElement(element: HTMLElement) {
+    if (!focusModeEnabled || focusHiddenElements.has(element)) return;
+    if (!isFocusCandidate(element)) return;
+    element.classList.add('rer-focus-hidden');
+    focusHiddenElements.add(element);
+  }
+
+  function scanFocusSubtree(root: Node) {
+    if (!(root instanceof Element)) return;
+    if (root instanceof HTMLElement) hideFocusElement(root);
+    root.querySelectorAll<HTMLElement>('*').forEach(hideFocusElement);
+  }
+
+  function forgetFocusSubtree(root: Node) {
+    if (!(root instanceof Element)) return;
+    if (root instanceof HTMLElement) focusHiddenElements.delete(root);
+    root.querySelectorAll<HTMLElement>('.rer-focus-hidden').forEach(element => {
+      focusHiddenElements.delete(element);
+    });
+  }
+
+  function stopFocusObserver() {
+    focusObserver?.disconnect();
+    focusObserver = null;
+  }
+
+  function ensureFocusObserver() {
+    if (focusObserver || !document.body) return;
+
+    focusObserver = new MutationObserver(mutations => {
+      if (!focusModeEnabled) return;
+
+      for (const mutation of mutations) {
+        if (mutation.type === 'childList') {
+          mutation.removedNodes.forEach(forgetFocusSubtree);
+          mutation.addedNodes.forEach(scanFocusSubtree);
+          continue;
+        }
+
+        if (
+          mutation.target instanceof HTMLElement &&
+          !focusHiddenElements.has(mutation.target)
+        ) {
+          hideFocusElement(mutation.target);
+        }
+      }
+    });
+
+    focusObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class', 'style', 'role', 'aria-modal'],
+    });
+  }
+
+  function syncFocusMode() {
+    document.documentElement.toggleAttribute('data-rer-focus-mode', focusModeEnabled);
+
+    if (!focusModeEnabled) {
+      stopFocusObserver();
+      for (const element of focusHiddenElements) {
+        element.classList.remove('rer-focus-hidden');
+      }
+      focusHiddenElements.clear();
+      return;
+    }
+
+    scanFocusSubtree(document.body);
+    ensureFocusObserver();
+  }
+
   function showBufferStatus() {
     if (bufferFadeTimerId !== null) {
       clearTimeout(bufferFadeTimerId);
@@ -1314,6 +1431,9 @@ declare function GM_setValue<T>(key: string, value: T): void;
         ? `${scrollState.speed} px/s`
         : 'Indisponible';
     }
+
+    const focusToggle = panel.querySelector<HTMLInputElement>('#rer-reader-focus-toggle');
+    if (focusToggle) focusToggle.checked = focusModeEnabled;
 
     const retryBtn = panel.querySelector('#rer-reading-buffer-retry');
     if (retryBtn) retryBtn.hidden = !status.problem;
@@ -1656,6 +1776,37 @@ declare function GM_setValue<T>(key: string, value: T): void;
     switchLabel.append(scrollToggle, switchTrack);
     scrollRow.append(scrollLabel, scrollMeta, switchLabel);
 
+    const focusRow = document.createElement('div');
+    focusRow.className = 'rer-setting-row rer-focus-row';
+
+    const focusLabel = document.createElement('strong');
+    focusLabel.className = 'rer-inline-title';
+    focusLabel.textContent = 'Focus';
+
+    const focusMeta = document.createElement('span');
+    focusMeta.className = 'rer-focus-meta';
+    focusMeta.textContent = 'Épure la page';
+
+    const focusSwitchLabel = document.createElement('label');
+    focusSwitchLabel.className = 'rer-switch';
+
+    const focusToggle = document.createElement('input');
+    focusToggle.id = 'rer-reader-focus-toggle';
+    focusToggle.type = 'checkbox';
+    focusToggle.checked = focusModeEnabled;
+    focusToggle.setAttribute('aria-label', 'Activer ou désactiver le mode Focus');
+    focusToggle.addEventListener('change', () => {
+      focusModeEnabled = focusToggle.checked;
+      GM_setValue(FOCUS_MODE_KEY, focusModeEnabled);
+      syncFocusMode();
+      requestAnimationFrame(positionPanelNearControl);
+    });
+
+    const focusSwitchTrack = document.createElement('span');
+    focusSwitchTrack.className = 'rer-switch-track';
+    focusSwitchLabel.append(focusToggle, focusSwitchTrack);
+    focusRow.append(focusLabel, focusMeta, focusSwitchLabel);
+
     const appearanceTitle = document.createElement('div');
     appearanceTitle.className = 'rer-section-title';
     appearanceTitle.textContent = 'Apparence';
@@ -1781,6 +1932,7 @@ declare function GM_setValue<T>(key: string, value: T): void;
       header,
       retryBtn,
       scrollRow,
+      focusRow,
       appearanceTitle,
       colorRow,
       sizeRow,
@@ -1940,6 +2092,10 @@ declare function GM_setValue<T>(key: string, value: T): void;
     const style = document.createElement('style');
     style.id = 'rer-reading-buffer-style';
     style.textContent = `
+      .rer-focus-hidden {
+        display: none !important;
+      }
+
       #rer-reading-rails {
         position: fixed;
         inset: 0;
@@ -2267,17 +2423,25 @@ declare function GM_setValue<T>(key: string, value: T): void;
         margin: 4px 0;
       }
 
-      #rer-reading-buffer-panel .rer-scroll-row {
+      #rer-reading-buffer-panel .rer-scroll-row,
+      #rer-reading-buffer-panel .rer-focus-row {
         display: grid;
         grid-template-columns: minmax(82px, 1fr) auto 42px;
         align-items: center;
         gap: 12px;
+      }
+
+      #rer-reading-buffer-panel .rer-scroll-row {
         margin-top: 2px;
+      }
+
+      #rer-reading-buffer-panel .rer-focus-row {
         padding-bottom: 7px;
         border-bottom: 1px solid rgba(255,255,255,.09);
       }
 
-      #rer-reading-buffer-panel .rer-scroll-meta {
+      #rer-reading-buffer-panel .rer-scroll-meta,
+      #rer-reading-buffer-panel .rer-focus-meta {
         min-width: 54px;
         text-align: center;
         opacity: .82;
@@ -2664,6 +2828,7 @@ declare function GM_setValue<T>(key: string, value: T): void;
     await refreshCacheStats();
     await refreshCachedAheadStatus();
     mountUI();
+    syncFocusMode();
     updateUI();
     restoreSavedReadingProgress();
     installReadingProgressPersistence();

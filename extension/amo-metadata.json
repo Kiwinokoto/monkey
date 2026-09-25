@@ -4,10 +4,10 @@
     "en-US": "Tunnel Reader"
   },
   "summary": {
-    "en-US": "Adaptive offline buffering and auto-scroll for comics, webtoons and novels."
+    "en-US": "Offline buffering, Focus Mode and auto-scroll for comics, webtoons and novels."
   },
   "description": {
-    "en-US": "Tunnel Reader is currently in beta.\n\nThe core reading features are functional, including adaptive cache-first buffering/offline reading and auto-scroll for comics and novels.\n\nSome interface behaviour is still being refined. In particular, the floating Reader control may occasionally remain visible or fail to collapse when expected.\n\nThis early public release is intended for real-world testing. Updates and bug fixes will follow incrementally through Firefox."
+    "en-US": "Tunnel Reader is currently in beta.\n\nThe core reading features are functional, including adaptive cache-first buffering/offline reading, reading resume, Focus Mode and auto-scroll for comics and novels.\n\nFocus Mode can temporarily hide common page chrome and intrusive overlays while keeping the reading content and Tunnel Reader controls intact.\n\nThis early public release is intended for real-world testing across more websites and devices. Small compatibility and interface refinements may follow."
   },
   "homepage": {
     "en-US": "https://github.com/Kiwinokoto/monkey"
@@ -20,7 +20,7 @@
   "version": {
     "license": "all-rights-reserved",
     "release_notes": {
-      "en-US": "First public AMO release under the Tunnel Reader name. Includes adaptive cache-first buffering, reading resume, Wake Lock during active auto-scroll, and comic/novel auto-scroll. Known beta issue: floating-control visibility/collapse can occasionally be inconsistent."
+      "en-US": "Adds Focus Mode: a reversible, per-site option that hides common headers, navigation, sidebars and intrusive fixed/sticky overlays while preserving reading content. Also polishes the AMO beta metadata and removes an unconfirmed control-button bug note."
     },
     "approval_notes": "Tunnel Reader is built from the human-readable TypeScript sources in src/ using the open-source esbuild dependency pinned in package-lock.json. Reproduction commands are documented in extension/README.md. The submission includes a source archive of the exact Git commit. The extension has no analytics, telemetry, remote code, or Reader backend. Broad HTTP/HTTPS matching is required because reader-page detection is site-agnostic; the content script exits early on pages that do not look like supported reading pages."
   }
