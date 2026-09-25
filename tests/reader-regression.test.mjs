@@ -126,6 +126,8 @@ test("Focus Mode hides distractions reversibly and follows dynamic page chrome",
   assert.ok(readerBufferSource.includes("main, article, [role=\"main\"]"));
   assert.ok(readerBufferSource.includes(".rer-focus-hidden {"));
   assert.ok(readerBufferSource.includes("display: none !important;"));
+  assert.ok(readerBufferSource.includes("doc.querySelectorAll('.rer-focus-hidden').forEach"));
+  assert.ok(readerBufferSource.includes("mountUI();\n    syncFocusMode();\n    status.problem = !navigator.onLine;"));
   assert.ok(readerBufferSource.includes("syncFocusMode();\n    updateUI();\n    restoreSavedReadingProgress();"));
 });
 

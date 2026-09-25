@@ -489,6 +489,10 @@ declare function GM_setValue<T>(key: string, value: T): void;
       '#rer-reading-buffer-badge, #rer-reading-buffer-panel, .asr-reader-control'
     ).forEach(el => el.remove());
 
+    doc.querySelectorAll('.rer-focus-hidden').forEach(el => {
+      el.classList.remove('rer-focus-hidden');
+    });
+
     for (const el of doc.querySelectorAll('*')) {
       for (const attr of [...el.attributes]) {
         const name = attr.name.toLowerCase();
@@ -841,6 +845,7 @@ declare function GM_setValue<T>(key: string, value: T): void;
 
     await hydrateCachedImages();
     mountUI();
+    syncFocusMode();
     status.problem = !navigator.onLine;
     status.message = navigator.onLine
       ? 'Chapitre servi instantanément depuis le buffer'
