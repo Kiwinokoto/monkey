@@ -434,6 +434,9 @@
     doc.querySelectorAll(
       'script, iframe, frame, frameset, object, embed, base, meta[http-equiv="refresh"], #rer-reader-control, #rer-reading-rails, #rer-reading-buffer-badge, #rer-reading-buffer-panel, .asr-reader-control'
     ).forEach((el) => el.remove());
+    doc.querySelectorAll(".rer-focus-hidden").forEach((el) => {
+      el.classList.remove("rer-focus-hidden");
+    });
     for (const el of doc.querySelectorAll("*")) {
       for (const attr of [...el.attributes]) {
         const name = attr.name.toLowerCase();
@@ -701,6 +704,7 @@
     });
     await hydrateCachedImages();
     mountUI();
+    syncFocusMode();
     status.problem = !navigator.onLine;
     status.message = navigator.onLine ? "Chapitre servi instantan\xE9ment depuis le buffer" : "Lecture depuis le buffer \u2014 r\xE9seau indisponible";
     await refreshCacheStats();
