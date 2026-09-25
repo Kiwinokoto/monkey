@@ -2,46 +2,63 @@
 
 Tunnel Reader is designed to work locally in the browser.
 
-## Data collection
+## Local processing and storage
 
-**Tunnel Reader does not collect or transmit personal data, analytics, telemetry,
-browsing history, or usage statistics to the developer or to any Tunnel Reader
-server. There is no Tunnel Reader backend service.**
+Tunnel Reader processes and stores limited reading data locally on the user's
+device solely to provide its core reading features.
 
-## Local data
+This may include:
 
-The Reader stores only data needed for its features:
+- chapter/page URLs needed for cache-first navigation and reading resume;
+- reading position information such as scroll position, progress ratio, and a
+  local reading anchor;
+- Reader preferences such as theme, control position, opacity, Focus Mode,
+  auto-scroll state, and speed;
+- buffered chapter/page HTML and cacheable images/resources used for offline or
+  unreliable-connectivity reading.
 
-- Reader preferences such as theme, control position, opacity, scroll state,
-  and speed are stored locally in the browser.
-- Buffered chapter/page HTML and cacheable resources are stored locally so
-  reading can continue during unreliable connectivity.
+This data remains on the user's device and is used only by Tunnel Reader to
+provide those features.
 
-This local data is used only by the Reader on the user's device.
+## Data transmission and developer access
+
+**Tunnel Reader does not transmit this local reading data to the developer or
+to any Tunnel Reader backend. There is no Tunnel Reader backend service.**
+
+The developer does not receive users' chapter URLs, reading positions, cached
+page content, browsing activity, or Reader settings.
+
+Tunnel Reader has no analytics, telemetry, advertising, tracking pixels, or
+usage-statistics service.
 
 ## Network requests
 
 To pre-buffer reading content, Tunnel Reader may request the current site's next
 chapters/pages and resources referenced by those pages. These requests are made
-to the websites/resources the user is reading; they are not sent to the
-developer.
+directly to the websites and resources the user is reading; they are not sent
+to the developer.
 
 The Reader respects normal HTTP failures and stops on access/rate-limit
 responses such as 401, 403, and 429 rather than trying to bypass them.
 
+## Remote code
+
+Tunnel Reader does not execute remote JavaScript or WebAssembly. All executable
+extension code is bundled with the extension. Network responses are treated as
+reading content only; cached HTML is sanitized before it is restored.
+
 ## Third parties
 
-Tunnel Reader does not add advertising, analytics SDKs, tracking pixels, remote
-code, or third-party telemetry.
+Tunnel Reader does not sell or transfer user data to third parties.
 
-The websites the user visits remain governed by their own privacy policies and
-terms.
+The websites and content providers the user visits remain governed by their own
+privacy policies and terms.
 
 ## Removing local data
 
-Users can remove locally stored Reader data through their browser's site/
-extension storage controls or by uninstalling/clearing the extension. The
-Reader also prunes its reading buffer automatically.
+Users can remove locally stored Reader data through their browser's
+site/extension storage controls or by uninstalling or clearing the extension.
+Tunnel Reader also prunes its reading buffer automatically.
 
 ## Contact / source
 
