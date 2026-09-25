@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RER Reader
 // @namespace    kiwinokoto.rer-reader
-// @version      1.6.1
+// @version      1.6.2
 // @description  Reader cache-first avec buffer adaptatif, reprise de lecture et auto-scroll comics/novels sur desktop et mobile.
 // @author       Kevin + ChatGPT
 // @homepageURL  https://github.com/Kiwinokoto/monkey

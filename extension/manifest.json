@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "RER Reader",
-  "version": "1.6.1",
-  "description": "Reader cache-first avec buffer adaptatif, reprise de lecture et auto-scroll pour comics et novels.",
+  "name": "Tunnel Reader",
+  "version": "1.6.2",
+  "description": "Adaptive cache-first reading with offline buffering and auto-scroll for comics and novels.",
   "homepage_url": "https://github.com/Kiwinokoto/monkey",
   "permissions": [
     "storage"

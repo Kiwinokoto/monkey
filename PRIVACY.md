@@ -1,12 +1,12 @@
-# RER Reader privacy
+# Tunnel Reader privacy
 
-RER Reader is designed to work locally in the browser.
+Tunnel Reader is designed to work locally in the browser.
 
 ## Data collection
 
-**RER Reader does not collect or transmit personal data, analytics, telemetry,
-browsing history, or usage statistics to the developer or to any RER Reader
-server. There is no RER Reader backend service.**
+**Tunnel Reader does not collect or transmit personal data, analytics, telemetry,
+browsing history, or usage statistics to the developer or to any Tunnel Reader
+server. There is no Tunnel Reader backend service.**
 
 ## Local data
 
@@ -21,7 +21,7 @@ This local data is used only by the Reader on the user's device.
 
 ## Network requests
 
-To pre-buffer reading content, RER Reader may request the current site's next
+To pre-buffer reading content, Tunnel Reader may request the current site's next
 chapters/pages and resources referenced by those pages. These requests are made
 to the websites/resources the user is reading; they are not sent to the
 developer.
@@ -31,7 +31,7 @@ responses such as 401, 403, and 429 rather than trying to bypass them.
 
 ## Third parties
 
-RER Reader does not add advertising, analytics SDKs, tracking pixels, remote
+Tunnel Reader does not add advertising, analytics SDKs, tracking pixels, remote
 code, or third-party telemetry.
 
 The websites the user visits remain governed by their own privacy policies and
